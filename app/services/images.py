@@ -1,4 +1,4 @@
-"""씬 이미지 생성 (Imagen) 및 실패 시 대체 이미지."""
+"""씬 이미지 생성 (Gemini 이미지 모델 또는 Imagen) 및 실패 시 대체 이미지."""
 
 import asyncio
 import colorsys
@@ -22,26 +22,53 @@ class ImageGenerationError(RuntimeError):
     pass
 
 
-class ImagenGenerator:
+class GeminiImageGenerator:
+    """Gemini 이미지 모델(generate_content)과 Imagen(generate_images)을 모델 이름으로 골라 씁니다."""
+
     def __init__(self, client: genai.Client, settings: Settings) -> None:
         self._client = client
         self._settings = settings
 
-    async def generate(self, prompt: str, output_path: Path) -> None:
-        config = types.GenerateImagesConfig(
-            number_of_images=1,
-            aspect_ratio="9:16",
-            negative_prompt="text, letters, watermark, logo, blurry, distorted",
+    @property
+    def _is_imagen(self) -> bool:
+        return self._settings.image_model.startswith("imagen")
+
+    async def _generate_gemini(self, prompt: str) -> bytes | None:
+        response = await self._client.aio.models.generate_content(
+            model=self._settings.image_model,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE"],
+                image_config=types.ImageConfig(aspect_ratio="9:16"),
+            ),
         )
+        for candidate in response.candidates or []:
+            for part in (candidate.content.parts if candidate.content else None) or []:
+                if part.inline_data and part.inline_data.data:
+                    return part.inline_data.data
+        return None
+
+    async def _generate_imagen(self, prompt: str) -> bytes | None:
+        result = await self._client.aio.models.generate_images(
+            model=self._settings.image_model,
+            prompt=prompt,
+            config=types.GenerateImagesConfig(
+                number_of_images=1,
+                aspect_ratio="9:16",
+                negative_prompt="text, letters, watermark, logo, blurry, distorted",
+            ),
+        )
+        images = result.generated_images or []
+        return images[0].image.image_bytes if images and images[0].image else None
+
+    async def generate(self, prompt: str, output_path: Path) -> None:
+        full_prompt = f"{prompt}, {STYLE_SUFFIX}"
 
         async def call() -> None:
-            result = await self._client.aio.models.generate_images(
-                model=self._settings.image_model,
-                prompt=f"{prompt}, {STYLE_SUFFIX}",
-                config=config,
-            )
-            images = result.generated_images or []
-            image_bytes = images[0].image.image_bytes if images and images[0].image else None
+            if self._is_imagen:
+                image_bytes = await self._generate_imagen(full_prompt)
+            else:
+                image_bytes = await self._generate_gemini(full_prompt)
             if not image_bytes:
                 # 안전 필터에 걸리면 이미지 없이 응답이 옵니다.
                 raise ImageGenerationError("이미지가 생성되지 않았습니다 (안전 필터 차단 가능).")

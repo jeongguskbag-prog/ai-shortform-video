@@ -1,15 +1,15 @@
 # ai-shortform-video
 
-대본 한 편을 입력하면 **Gemini**가 씬을 기획하고, **Edge TTS**로 나레이션을, **Imagen**으로 씬 이미지를 만든 뒤
+대본 한 편을 입력하면 **Gemini**가 씬을 기획하고, **Edge TTS**로 나레이션을, **Gemini 이미지 모델**로 씬 이미지를 만든 뒤
 **FFmpeg**로 자막·켄 번스 효과가 들어간 9:16 쇼츠 영상을 합성하는 FastAPI 서버입니다.
 
 ## 파이프라인
 
 ```
-대본 ─▶ Gemini 씬 기획 (JSON 스키마 강제, 씬 정규화)
+대본 ─▶ Gemini 씬 기획 (JSON 스키마 강제, 씬 정규화, 과부하 시 예비 모델로 전환)
         └▶ 씬별 병렬 처리 (동시 실행 수 제한)
              ├ Edge TTS 나레이션        (재시도)
-             ├ Imagen 이미지            (재시도 → 실패 시 대체 배경 + 경고)
+             ├ Gemini 이미지            (재시도 → 실패 시 대체 배경 + 경고)
              ├ Pillow 자막 PNG          (한글 폰트, 자동 줄바꿈, 외곽선, 반투명 박스)
              └ FFmpeg 씬 렌더링          (켄 번스 줌 인/아웃 교차, 음성 길이에 맞춤)
         └▶ FFmpeg 무손실 이어 붙이기 (+faststart)
@@ -95,6 +95,18 @@ curl -H "X-API-Key: $API_KEY" localhost:8000/api/v1/shorts/status/3f9c...
 ```
 
 상태: `QUEUED → PLANNING → GENERATING_ASSETS → RENDERING_FINAL → COMPLETED | FAILED`
+
+## Gemini 요금 등급과 모델
+
+- **씬 기획**은 무료 등급으로 됩니다. 기본값 `gemini-flash-latest`는 Google이 최신 Flash 모델로 자동 연결해 주는 별칭이라
+  특정 버전이 내려가도 404가 나지 않습니다. 과부하(503) 등으로 계속 실패하면 `LLM_FALLBACK_MODEL`(기본 `gemini-flash-lite-latest`)로
+  한 번 더 시도합니다.
+- **이미지 생성은 무료 등급 한도가 0**이라 결제를 켜야 합니다 (2026년 10월 실제 키로 확인). 결제 전에는 모든 씬이 그라디언트
+  대체 배경으로 만들어지고, 상태 조회의 `warnings`에 이유가 하나로 묶여 표시됩니다. 결제를 켤 때는 AI Studio에서 월 지출 한도도 함께
+  설정하세요.
+- 기본 이미지 모델은 `gemini-3.1-flash-image`입니다. `imagen-`으로 시작하는 모델을 지정하면 Imagen API를 사용합니다.
+- 쓸 수 있는 모델 목록 확인:
+  `python -c "from google import genai; [print(m.name) for m in genai.Client().models.list()]"`
 
 ## 설정
 

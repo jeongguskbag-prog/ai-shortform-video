@@ -27,7 +27,7 @@ WEB_INDEX = Path(__file__).parent / "web" / "index.html"
 def build_default_providers(settings: Settings) -> Providers:
     from google import genai
 
-    from .services.images import ImagenGenerator
+    from .services.images import GeminiImageGenerator
     from .services.planner import GeminiPlanner
     from .services.tts import EdgeTTS
 
@@ -36,7 +36,7 @@ def build_default_providers(settings: Settings) -> Providers:
     return Providers(
         planner=GeminiPlanner(client, settings),
         tts=EdgeTTS(settings),
-        images=ImagenGenerator(client, settings),
+        images=GeminiImageGenerator(client, settings),
     )
 
 
