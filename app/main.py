@@ -1,20 +1,27 @@
 import asyncio
 import logging
+import secrets
 import shutil
+import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import timedelta
+from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, status
-from fastapi.staticfiles import StaticFiles
+from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse
 
+from .auth import require_api_key
 from .config import Settings, get_settings
 from .jobs import JobStore
 from .pipeline import Providers, ShortsPipeline
 from .schemas import CreateJobResponse, JobStatusResponse, ScriptRequest
 from .services import video
+from .signing import VIDEO_ROUTE_PREFIX, URLSigner
 
 logger = logging.getLogger(__name__)
+
+WEB_INDEX = Path(__file__).parent / "web" / "index.html"
 
 
 def build_default_providers(settings: Settings) -> Providers:
@@ -52,6 +59,17 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
         )
         logger.info("자막 폰트: %s", spec.font_path)
 
+        app.state.api_keys = settings.api_key_list
+        if not app.state.api_keys:
+            logger.warning("API_KEYS가 비어 있어 인증 없이 실행합니다. 외부에 공개하지 마세요.")
+
+        if settings.url_signing_secret:
+            secret = settings.url_signing_secret.encode()
+        else:
+            secret = secrets.token_bytes(32)
+            logger.info("URL_SIGNING_SECRET이 없어 임시 비밀키를 만들었습니다. 재시작하면 기존 영상 링크는 무효가 됩니다.")
+        app.state.signer = URLSigner(secret, settings.video_url_ttl_sec)
+
         app.state.jobs = JobStore()
         app.state.pipeline = ShortsPipeline(
             providers or build_default_providers(settings), settings, spec
@@ -73,17 +91,22 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
         description="대본 한 편으로 자막·나레이션·이미지가 들어간 9:16 쇼츠 영상을 생성합니다.",
         lifespan=lifespan,
     )
-    app.mount("/static", StaticFiles(directory=settings.output_dir), name="static")
+
+    @app.get("/", include_in_schema=False)
+    async def index() -> FileResponse:
+        return FileResponse(WEB_INDEX)
 
     @app.get("/health", tags=["system"])
     async def health(request: Request) -> dict:
-        return {"status": "ok", "jobs": len(request.app.state.jobs)}
+        # 웹 화면이 키 입력란을 띄울지 판단하는 데 씁니다. 작업 수 같은 내부 정보는 노출하지 않습니다.
+        return {"status": "ok", "auth_required": bool(request.app.state.api_keys)}
 
     @app.post(
         "/api/v1/shorts/generate",
         response_model=CreateJobResponse,
         status_code=status.HTTP_202_ACCEPTED,
         tags=["shorts"],
+        dependencies=[Depends(require_api_key)],
     )
     async def create_shorts_job(req: ScriptRequest, request: Request) -> CreateJobResponse:
         state = request.app.state
@@ -100,13 +123,42 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
         )
 
     @app.get(
-        "/api/v1/shorts/status/{job_id}", response_model=JobStatusResponse, tags=["shorts"]
+        "/api/v1/shorts/status/{job_id}",
+        response_model=JobStatusResponse,
+        tags=["shorts"],
+        dependencies=[Depends(require_api_key)],
     )
     async def get_job_status(job_id: str, request: Request) -> JobStatusResponse:
         job = request.app.state.jobs.get(job_id)
         if job is None:
             raise HTTPException(status_code=404, detail="작업을 찾을 수 없습니다.")
-        return job.to_response()
+        return job.to_response(request.app.state.signer)
+
+    @app.get(f"{VIDEO_ROUTE_PREFIX}/{{job_id}}/{{filename}}", include_in_schema=False)
+    async def get_video(
+        job_id: str,
+        filename: str,
+        request: Request,
+        expires: int | None = None,
+        sig: str | None = None,
+    ) -> FileResponse:
+        # API 키 대신 서명으로 접근을 허용합니다 (<video> 태그는 헤더를 붙일 수 없음).
+        path = f"{VIDEO_ROUTE_PREFIX}/{job_id}/{filename}"
+        if expires is None or not sig or not request.app.state.signer.verify(path, expires, sig):
+            raise HTTPException(status_code=403, detail="링크가 만료되었거나 올바르지 않습니다.")
+        job = request.app.state.jobs.get(job_id)
+        # 파일 경로는 요청 값이 아니라 작업에 기록된 이름으로 만들어 경로 조작을 막습니다.
+        if job is None or job.video_file != filename:
+            raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+        file_path = settings.output_dir / job.job_id / job.video_file
+        if not file_path.is_file():
+            raise HTTPException(status_code=404, detail="영상을 찾을 수 없습니다.")
+        max_age = max(0, expires - int(time.time()))
+        return FileResponse(
+            file_path,
+            media_type="video/mp4",
+            headers={"Cache-Control": f"private, max-age={max_age}", "Referrer-Policy": "no-referrer"},
+        )
 
     return app
 

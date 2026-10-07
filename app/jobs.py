@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from .schemas import JobStatus, JobStatusResponse
+from .signing import VIDEO_ROUTE_PREFIX, URLSigner
 
 
 def _now() -> datetime:
@@ -24,7 +25,7 @@ class Job:
     progress: int = 0
     title: str | None = None
     scene_count: int | None = None
-    video_url: str | None = None
+    video_file: str | None = None  # 작업 폴더 안의 최종 영상 파일 이름
     duration_sec: float | None = None
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
@@ -38,14 +39,21 @@ class Job:
         self.progress = max(0, min(100, self.progress))
         self.updated_at = _now()
 
-    def to_response(self) -> JobStatusResponse:
+    @property
+    def video_path(self) -> str | None:
+        return f"{VIDEO_ROUTE_PREFIX}/{self.job_id}/{self.video_file}" if self.video_file else None
+
+    def to_response(self, signer: URLSigner) -> JobStatusResponse:
+        # 조회할 때마다 새 만료 시각으로 서명해서, 상태를 다시 조회하면 링크가 갱신됩니다.
+        signed = signer.sign(self.video_path) if self.video_path else None
         return JobStatusResponse(
             job_id=self.job_id,
             status=self.status,
             progress=self.progress,
             title=self.title,
             scene_count=self.scene_count,
-            video_url=self.video_url,
+            video_url=signed.url if signed else None,
+            video_url_expires_at=signed.expires_at if signed else None,
             duration_sec=self.duration_sec,
             error=self.error,
             warnings=list(self.warnings),
@@ -59,7 +67,7 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
 
     def create(self, script: str, tone: str) -> Job:
-        job = Job(job_id=uuid.uuid4().hex[:12], script=script, tone=tone)
+        job = Job(job_id=uuid.uuid4().hex, script=script, tone=tone)
         self._jobs[job.job_id] = job
         return job
 

@@ -1,0 +1,563 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ai-shortform-video</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect x='8' y='2' width='16' height='28' rx='4' fill='%236d5dfc'/><path d='M14 11l6 5-6 5z' fill='white'/></svg>">
+<style>
+  :root {
+    --bg: #f6f6f9;
+    --surface: #ffffff;
+    --surface-2: #f0f0f5;
+    --border: #e2e2ea;
+    --text: #17171f;
+    --muted: #6b6b7b;
+    --accent: #6d5dfc;
+    --accent-ink: #ffffff;
+    --accent-soft: #ecebff;
+    --ok: #12805c;
+    --ok-soft: #e3f6ee;
+    --warn: #9a6200;
+    --warn-soft: #fff4dc;
+    --err: #c62f3b;
+    --err-soft: #fde8ea;
+    --radius: 14px;
+    --shadow: 0 1px 2px rgba(20, 20, 40, .05), 0 8px 24px rgba(20, 20, 40, .06);
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101015;
+      --surface: #191920;
+      --surface-2: #22222b;
+      --border: #2e2e3a;
+      --text: #ececf2;
+      --muted: #9a9aab;
+      --accent: #8b7dff;
+      --accent-ink: #0f0f14;
+      --accent-soft: #26233f;
+      --ok: #4cc79a;
+      --ok-soft: #15302a;
+      --warn: #f0b955;
+      --warn-soft: #33290f;
+      --err: #ff7480;
+      --err-soft: #3a1a1e;
+      --shadow: none;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 15px/1.6 "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", "Malgun Gothic", system-ui, sans-serif;
+  }
+  .wrap { max-width: 1040px; margin: 0 auto; padding: 32px 16px 64px; }
+  header { display: flex; align-items: center; gap: 12px; margin-bottom: 28px; }
+  .logo {
+    width: 36px; height: 36px; border-radius: 10px; background: var(--accent);
+    display: grid; place-items: center; flex: none;
+  }
+  .logo svg { width: 16px; height: 16px; fill: var(--accent-ink); }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -.01em; }
+  header p { margin: 0; color: var(--muted); font-size: 13px; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .card {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); box-shadow: var(--shadow); padding: 20px;
+  }
+  .card + .card { margin-top: 16px; }
+  h2 { font-size: 15px; margin: 0 0 12px; }
+  label.field { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
+  textarea, input[type=text], input[type=password] {
+    width: 100%; font: inherit; color: inherit; background: var(--surface-2);
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; outline: none;
+  }
+  textarea { min-height: 240px; resize: vertical; }
+  .key-section { margin-bottom: 20px; }
+  textarea:focus, input[type=text]:focus, input[type=password]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .hint { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 6px; }
+  .hint .over { color: var(--err); font-weight: 600; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .chip {
+    font: inherit; font-size: 13px; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+    border: 1px solid var(--border); background: var(--surface); color: var(--text);
+  }
+  .chip[aria-pressed=true] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); font-weight: 600; }
+  .section { margin-top: 20px; }
+  .btn {
+    font: inherit; font-weight: 600; border: 0; border-radius: 10px; cursor: pointer;
+    padding: 12px 18px; background: var(--accent); color: var(--accent-ink); width: 100%; margin-top: 20px;
+  }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.secondary { background: var(--surface-2); color: var(--text); border: 1px solid var(--border); width: auto; margin: 0; padding: 8px 14px; font-size: 13px; text-decoration: none; display: inline-block; }
+  .alert { border-radius: 10px; padding: 10px 14px; font-size: 13px; margin-top: 12px; white-space: pre-wrap; word-break: break-word; }
+  .alert.err { background: var(--err-soft); color: var(--err); }
+  .alert.warn { background: var(--warn-soft); color: var(--warn); }
+  .alert ul { margin: 4px 0 0; padding-left: 18px; }
+
+  .phone {
+    aspect-ratio: 9 / 16; width: 100%; max-width: 300px; margin: 0 auto; border-radius: 18px; overflow: hidden;
+    background: var(--surface-2); border: 1px solid var(--border);
+    display: grid; place-items: center; text-align: center; color: var(--muted); font-size: 13px;
+  }
+  .phone video { width: 100%; height: 100%; object-fit: cover; background: #000; display: block; }
+  .phone .empty { padding: 24px; }
+  .phone .empty svg { width: 40px; height: 40px; fill: var(--border); margin-bottom: 8px; }
+  .meta { margin-top: 12px; }
+  .meta .title { font-weight: 700; }
+  .meta .sub { color: var(--muted); font-size: 13px; }
+  .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+
+  .bar { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 6px 0 14px; }
+  .bar > div { height: 100%; width: 0; background: var(--accent); border-radius: inherit; transition: width .4s ease; }
+  .bar.ok > div { background: var(--ok); }
+  .bar.err > div { background: var(--err); }
+  .progress-head { display: flex; justify-content: space-between; font-size: 13px; }
+  .progress-head b { font-variant-numeric: tabular-nums; }
+  ol.steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+  ol.steps li { display: flex; align-items: center; gap: 10px; font-size: 13px; color: var(--muted); }
+  ol.steps .dot {
+    width: 18px; height: 18px; border-radius: 50%; flex: none; border: 2px solid var(--border);
+    display: grid; place-items: center;
+  }
+  ol.steps li.done { color: var(--text); }
+  ol.steps li.done .dot { background: var(--ok); border-color: var(--ok); }
+  ol.steps li.done .dot::after { content: ""; width: 6px; height: 3px; border: solid var(--accent-ink); border-width: 0 0 2px 2px; transform: translateY(-1px) rotate(-45deg); }
+  ol.steps li.active { color: var(--text); font-weight: 600; }
+  ol.steps li.active .dot { border-color: var(--accent); border-top-color: transparent; animation: spin .8s linear infinite; }
+  ol.steps li.failed { color: var(--err); font-weight: 600; }
+  ol.steps li.failed .dot { border-color: var(--err); background: var(--err); }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (prefers-reduced-motion: reduce) { ol.steps li.active .dot { animation: none; border-top-color: var(--accent); } .bar > div { transition: none; } }
+
+  .history { list-style: none; margin: 0; padding: 0; }
+  .history li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+  .history li:first-child { border-top: 0; padding-top: 0; }
+  .history button.link {
+    all: unset; cursor: pointer; flex: 1; min-width: 0;
+  }
+  .history .h-title { display: block; font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .history .h-sub { display: block; font-size: 12px; color: var(--muted); }
+  .history button.link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }
+  .badge { font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); flex: none; }
+  .badge.ok { background: var(--ok-soft); color: var(--ok); }
+  .badge.err { background: var(--err-soft); color: var(--err); }
+  .badge.run { background: var(--accent-soft); color: var(--accent); }
+  .muted { color: var(--muted); font-size: 13px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo"><svg viewBox="0 0 16 16"><path d="M4 2l10 6-10 6z"/></svg></div>
+    <div>
+      <h1>ai-shortform-video</h1>
+      <p>대본을 넣으면 나레이션·이미지·자막이 들어간 세로 쇼츠 영상을 만들어 드려요.</p>
+    </div>
+  </header>
+
+  <div class="grid">
+    <main>
+      <form class="card" id="form" novalidate>
+        <div class="key-section" id="key-section" hidden>
+          <label class="field" for="api-key">API 키</label>
+          <input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="서버 관리자에게 받은 API 키">
+          <div class="hint"><span>이 서버는 API 키가 있어야 쓸 수 있어요 · 키는 이 브라우저에만 저장돼요</span></div>
+        </div>
+        <label class="field" for="script">대본</label>
+        <textarea id="script" placeholder="예) 하루 10분 투자로 인생이 바뀌는 습관 3가지를 알려드릴게요. 첫째, 아침에 일어나자마자 물 한 잔 마시기..." required></textarea>
+        <div class="hint"><span>10~5,000자 · 문장이 많을수록 씬이 늘어나요</span><span id="count">0 / 5,000</span></div>
+
+        <div class="section">
+          <label class="field" id="tone-label">분위기</label>
+          <div class="chips" role="group" aria-labelledby="tone-label" id="tones"></div>
+          <input type="text" id="tone" maxlength="50" aria-label="분위기 직접 입력" placeholder="직접 입력 (예: 따뜻하고 잔잔한)">
+        </div>
+
+        <button class="btn" type="submit" id="submit">영상 만들기</button>
+        <div class="alert err" id="form-error" role="alert" hidden></div>
+      </form>
+
+      <section class="card" id="progress-card" hidden aria-live="polite">
+        <div class="progress-head"><span id="stage-text">대기 중</span><b id="pct">0%</b></div>
+        <div class="bar" id="bar"><div></div></div>
+        <ol class="steps" id="steps"></ol>
+        <div class="alert err" id="job-error" hidden></div>
+        <div class="alert warn" id="job-warn" hidden></div>
+      </section>
+    </main>
+
+    <aside>
+      <div class="card">
+        <div class="phone" id="phone">
+          <div class="empty">
+            <svg viewBox="0 0 24 24"><path d="M17 2H7a3 3 0 0 0-3 3v14a3 3 0 0 0 3 3h10a3 3 0 0 0 3-3V5a3 3 0 0 0-3-3zm-7 13V9l5 3z"/></svg>
+            <div>완성된 영상이 여기에 나와요</div>
+          </div>
+        </div>
+        <div class="meta" id="meta" hidden>
+          <div class="title" id="v-title"></div>
+          <div class="sub" id="v-sub"></div>
+          <div class="actions"><a class="btn secondary" id="download" download>다운로드</a></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>최근 작업</h2>
+        <ul class="history" id="history"></ul>
+        <p class="muted" id="history-empty">아직 만든 영상이 없어요.</p>
+      </div>
+    </aside>
+  </div>
+</div>
+
+<script>
+(() => {
+  const API = "/api/v1/shorts";
+  const HISTORY_KEY = "shorts.history.v1";
+  const API_KEY_STORAGE = "shorts.apiKey.v1";
+  const MAX_HISTORY = 10;
+  const POLL_MS = 1500;
+  const MIN_LEN = 10, MAX_LEN = 5000;
+
+  const TONES = [
+    ["energetic", "활기찬"], ["calm", "차분한"], ["humorous", "유머러스"],
+    ["emotional", "감성적인"], ["informative", "정보 전달"], ["mysterious", "미스터리"],
+  ];
+  const STEPS = [
+    ["QUEUED", "대기열 등록"],
+    ["PLANNING", "AI가 씬 기획"],
+    ["GENERATING_ASSETS", "나레이션 · 이미지 · 씬 생성"],
+    ["RENDERING_FINAL", "최종 영상 합치기"],
+    ["COMPLETED", "완성"],
+  ];
+  const STATUS_LABEL = Object.fromEntries(STEPS);
+  STATUS_LABEL.FAILED = "실패";
+
+  const $ = (id) => document.getElementById(id);
+  const els = {
+    form: $("form"), script: $("script"), count: $("count"), tones: $("tones"), tone: $("tone"),
+    submit: $("submit"), formError: $("form-error"), keySection: $("key-section"), apiKey: $("api-key"),
+    progressCard: $("progress-card"), stageText: $("stage-text"), pct: $("pct"), bar: $("bar"),
+    steps: $("steps"), jobError: $("job-error"), jobWarn: $("job-warn"),
+    phone: $("phone"), meta: $("meta"), vTitle: $("v-title"), vSub: $("v-sub"), download: $("download"),
+    history: $("history"), historyEmpty: $("history-empty"),
+  };
+  const phoneEmpty = els.phone.innerHTML;
+
+  // ---------- 저장소 (브라우저마다 따로 보관, 실패해도 동작) ----------
+  const store = {
+    load() {
+      try { return JSON.parse(localStorage.getItem(HISTORY_KEY)) || []; } catch { return []; }
+    },
+    save(items) {
+      try { localStorage.setItem(HISTORY_KEY, JSON.stringify(items.slice(0, MAX_HISTORY))); } catch {}
+    },
+  };
+  let history = store.load();
+
+  function upsertHistory(job) {
+    const entry = {
+      job_id: job.job_id, status: job.status, title: job.title || null,
+      created_at: job.created_at || new Date().toISOString(),
+      preview: job.preview ?? history.find((h) => h.job_id === job.job_id)?.preview ?? "",
+    };
+    history = [entry, ...history.filter((h) => h.job_id !== job.job_id)];
+    store.save(history);
+    renderHistory();
+  }
+
+  // ---------- API 키 ----------
+  class AuthError extends Error {}
+  try { els.apiKey.value = localStorage.getItem(API_KEY_STORAGE) || ""; } catch {}
+  els.apiKey.addEventListener("input", () => {
+    try { localStorage.setItem(API_KEY_STORAGE, els.apiKey.value.trim()); } catch {}
+  });
+
+  function authHeaders() {
+    const key = els.apiKey.value.trim();
+    return key ? { "X-API-Key": key } : {};
+  }
+
+  function askForKey(message) {
+    els.keySection.hidden = false;
+    els.apiKey.focus();
+    showError(els.formError, message);
+    els.submit.disabled = false;
+    els.submit.textContent = "영상 만들기";
+  }
+
+  // ---------- 폼 ----------
+  let selectedTone = "energetic";
+  for (const [value, label] of TONES) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = label; b.dataset.value = value;
+    b.addEventListener("click", () => { selectedTone = value; els.tone.value = ""; renderTones(); });
+    els.tones.append(b);
+  }
+  function renderTones() {
+    const custom = els.tone.value.trim();
+    for (const b of els.tones.children) b.setAttribute("aria-pressed", String(!custom && b.dataset.value === selectedTone));
+  }
+  els.tone.addEventListener("input", renderTones);
+  renderTones();
+
+  function updateCount() {
+    const n = els.script.value.trim().length;
+    els.count.textContent = `${n.toLocaleString()} / ${MAX_LEN.toLocaleString()}`;
+    els.count.className = n > MAX_LEN ? "over" : "";
+  }
+  els.script.addEventListener("input", updateCount);
+  updateCount();
+
+  function showError(el, msg) { el.textContent = msg; el.hidden = !msg; }
+
+  function describeApiError(body, status) {
+    if (Array.isArray(body?.detail)) {
+      return body.detail.map((d) => {
+        const field = d.loc?.at(-1) === "script" ? "대본" : d.loc?.at(-1) === "tone" ? "분위기" : d.loc?.at(-1);
+        return `${field}: ${d.msg}`;
+      }).join("\n");
+    }
+    if (typeof body?.detail === "string") return body.detail;
+    return `요청에 실패했어요 (HTTP ${status}).`;
+  }
+
+  els.form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    showError(els.formError, "");
+    const script = els.script.value.trim();
+    const tone = els.tone.value.trim() || selectedTone;
+    if (script.length < MIN_LEN) return showError(els.formError, `대본을 ${MIN_LEN}자 이상 입력해 주세요.`);
+    if (script.length > MAX_LEN) return showError(els.formError, `대본은 ${MAX_LEN.toLocaleString()}자까지 입력할 수 있어요.`);
+
+    if (!els.keySection.hidden && !els.apiKey.value.trim()) return askForKey("API 키를 입력해 주세요.");
+
+    els.submit.disabled = true;
+    els.submit.textContent = "요청 중…";
+    try {
+      const res = await fetch(`${API}/generate`, {
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
+        body: JSON.stringify({ script, tone }),
+      });
+      if (res.status === 401) return askForKey("API 키가 올바르지 않아요. 다시 확인해 주세요.");
+      const body = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(describeApiError(body, res.status));
+      upsertHistory({ job_id: body.job_id, status: body.status, preview: script.slice(0, 40) });
+      watch(body.job_id);
+    } catch (err) {
+      showError(els.formError, err instanceof TypeError ? "서버에 연결할 수 없어요. 서버가 실행 중인지 확인해 주세요." : err.message);
+      els.submit.disabled = false;
+      els.submit.textContent = "영상 만들기";
+    }
+  });
+
+  // ---------- 진행 상황 ----------
+  let watching = null;   // 현재 보고 있는 job_id
+  let timer = null;
+
+  function renderSteps(status) {
+    const idx = STEPS.findIndex(([s]) => s === status);
+    els.steps.replaceChildren(...STEPS.map(([s, label], i) => {
+      const li = document.createElement("li");
+      const dot = document.createElement("span"); dot.className = "dot";
+      li.append(dot, document.createTextNode(label));
+      if (status === "COMPLETED" || i < idx) li.className = "done";
+      else if (i === idx) li.className = "active";
+      return li;
+    }));
+    if (status === "FAILED") {
+      // 마지막으로 진행 중이던 단계를 실패로 표시
+      const items = [...els.steps.children];
+      const last = items.findIndex((li) => !li.classList.contains("done"));
+      if (last >= 0) items[last].className = "failed";
+    }
+  }
+
+  function renderJob(job) {
+    els.progressCard.hidden = false;
+    const terminal = job.status === "COMPLETED" || job.status === "FAILED";
+    const pct = job.progress;
+    els.pct.textContent = `${pct}%`;
+    els.bar.firstElementChild.style.width = `${pct}%`;
+    els.bar.className = "bar" + (job.status === "COMPLETED" ? " ok" : job.status === "FAILED" ? " err" : "");
+    els.stageText.textContent = job.status === "GENERATING_ASSETS" && job.scene_count
+      ? `${STATUS_LABEL[job.status]} (${job.scene_count}개 씬)`
+      : STATUS_LABEL[job.status] || job.status;
+    renderSteps(job.status);
+
+    showError(els.jobError, job.status === "FAILED" ? `영상 생성에 실패했어요.\n${job.error || ""}` : "");
+    if (job.warnings?.length) {
+      els.jobWarn.replaceChildren(document.createTextNode("일부 단계를 대체해서 진행했어요."));
+      const ul = document.createElement("ul");
+      for (const w of job.warnings) { const li = document.createElement("li"); li.textContent = w; ul.append(li); }
+      els.jobWarn.append(ul);
+      els.jobWarn.hidden = false;
+    } else {
+      els.jobWarn.hidden = true;
+    }
+
+    if (job.status === "COMPLETED" && job.video_url) showVideo(job);
+    else resetPreview();
+
+    els.submit.disabled = !terminal;
+    els.submit.textContent = terminal ? "영상 만들기" : "만드는 중…";
+  }
+
+  function resetPreview() {
+    resetShown();
+    if (!els.phone.querySelector(".empty")) els.phone.innerHTML = phoneEmpty;
+    els.meta.hidden = true;
+  }
+
+  // 영상 링크는 서명되어 일정 시간 뒤 만료됩니다. 만료되면 상태를 다시 조회해 새 링크를 받습니다.
+  let shown = null;   // { job_id, video_url, expires }
+
+  function linkExpired() {
+    return !shown || Date.now() > shown.expires - 10_000;
+  }
+
+  async function refreshLink() {
+    const job = await fetchStatus(shown.job_id);
+    if (!job?.video_url) throw new Error("영상을 더 이상 찾을 수 없어요.");
+    showVideo(job);
+  }
+
+  function showVideo(job) {
+    const sameJob = shown?.job_id === job.job_id;
+    shown = {
+      job_id: job.job_id, video_url: job.video_url,
+      expires: job.video_url_expires_at ? Date.parse(job.video_url_expires_at) : Infinity,
+    };
+    let v = els.phone.querySelector("video");
+    if (!v || !sameJob) {
+      v = document.createElement("video");
+      v.controls = true; v.playsInline = true; v.preload = "metadata";
+      v.addEventListener("error", () => {
+        // 만료된 링크로 재생하다 실패하면 한 번만 새 링크로 다시 시도
+        if (v.dataset.retried || !linkExpired()) return;
+        v.dataset.retried = "1";
+        refreshLink().catch(() => {});
+      });
+      els.phone.replaceChildren(v);
+      v.src = job.video_url;
+    } else if (v.getAttribute("src") !== job.video_url) {
+      // 같은 영상의 링크만 바뀐 경우 재생 위치를 유지
+      const t = v.currentTime, playing = !v.paused;
+      v.src = job.video_url;
+      v.addEventListener("loadedmetadata", () => {
+        v.currentTime = t;
+        if (playing) v.play().catch(() => {});
+        delete v.dataset.retried;
+      }, { once: true });
+    }
+    els.vTitle.textContent = job.title || "제목 없음";
+    const parts = [];
+    if (job.scene_count) parts.push(`${job.scene_count}개 씬`);
+    if (job.duration_sec) parts.push(`${job.duration_sec.toFixed(1)}초`);
+    els.vSub.textContent = parts.join(" · ");
+    els.download.href = job.video_url;
+    els.download.setAttribute("download", `${(job.title || job.job_id).replace(/[\\/:*?"<>|]/g, "_")}.mp4`);
+    els.meta.hidden = false;
+  }
+
+  els.download.addEventListener("click", async (e) => {
+    if (!linkExpired()) return;
+    e.preventDefault();
+    try {
+      await refreshLink();
+      els.download.click();
+    } catch (err) {
+      showError(els.jobError, err instanceof AuthError ? "API 키를 확인해 주세요." : "영상 링크를 새로 받지 못했어요.");
+    }
+  });
+
+  function resetShown() { shown = null; }
+
+  async function fetchStatus(jobId) {
+    const res = await fetch(`${API}/status/${encodeURIComponent(jobId)}`, { headers: authHeaders() });
+    if (res.status === 401) throw new AuthError();
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    return res.json();
+  }
+
+  function watch(jobId) {
+    watching = jobId;
+    clearTimeout(timer);
+    showError(els.formError, "");
+    let failures = 0;
+    const tick = async () => {
+      if (watching !== jobId) return;
+      try {
+        const job = await fetchStatus(jobId);
+        if (watching !== jobId) return;
+        if (!job) {
+          removeHistory(jobId);
+          els.progressCard.hidden = true; resetPreview();
+          els.submit.disabled = false; els.submit.textContent = "영상 만들기";
+          return showError(els.formError, "이 작업은 만료되었거나 서버가 다시 시작되어 찾을 수 없어요.");
+        }
+        failures = 0;
+        renderJob(job);
+        upsertHistory(job);
+        if (job.status !== "COMPLETED" && job.status !== "FAILED") timer = setTimeout(tick, POLL_MS);
+      } catch (err) {
+        if (err instanceof AuthError) {
+          if (watching === jobId) watching = null;
+          return askForKey("작업 상태를 보려면 올바른 API 키가 필요해요.");
+        }
+        failures += 1;
+        els.stageText.textContent = "서버 응답을 기다리는 중…";
+        timer = setTimeout(tick, Math.min(POLL_MS * 2 ** failures, 15000));
+      }
+    };
+    tick();
+  }
+
+  // ---------- 최근 작업 ----------
+  function removeHistory(jobId) {
+    history = history.filter((h) => h.job_id !== jobId);
+    store.save(history);
+    renderHistory();
+  }
+
+  function renderHistory() {
+    els.historyEmpty.hidden = history.length > 0;
+    els.history.replaceChildren(...history.map((h) => {
+      const li = document.createElement("li");
+      const btn = document.createElement("button");
+      btn.type = "button"; btn.className = "link";
+      const t = document.createElement("span"); t.className = "h-title";
+      t.textContent = h.title || h.preview || h.job_id;
+      const s = document.createElement("span"); s.className = "h-sub";
+      s.textContent = new Date(h.created_at).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" });
+      btn.append(t, s);
+      btn.addEventListener("click", () => watch(h.job_id));
+      const badge = document.createElement("span");
+      badge.className = "badge " + (h.status === "COMPLETED" ? "ok" : h.status === "FAILED" ? "err" : "run");
+      badge.textContent = h.status === "COMPLETED" ? "완료" : h.status === "FAILED" ? "실패" : "진행 중";
+      li.append(btn, badge);
+      return li;
+    }));
+  }
+  renderHistory();
+
+  // 서버가 인증을 요구하면 키 입력란을 보여주고, 진행 중이던 작업을 이어서 보여줌
+  (async () => {
+    try {
+      const health = await (await fetch("/health")).json();
+      if (health.auth_required) els.keySection.hidden = false;
+    } catch {}
+    const running = history.find((h) => h.status !== "COMPLETED" && h.status !== "FAILED");
+    if (running) watch(running.job_id);
+  })();
+})();
+</script>
+</body>
+</html>

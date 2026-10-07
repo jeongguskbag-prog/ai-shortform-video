@@ -70,3 +70,14 @@ async def test_validation_and_404(settings, providers):
         assert (await client.post("/api/v1/shorts/generate", json={"script": " " * 20})).status_code == 422
         assert (await client.get("/api/v1/shorts/status/nope")).status_code == 404
         assert (await client.get("/health")).json()["status"] == "ok"
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_web_index_served(settings, providers):
+    app = create_app(settings, providers)
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        r = await client.get("/")
+        assert r.status_code == 200
+        assert r.headers["content-type"].startswith("text/html")
+        assert "/api/v1/shorts" in r.text

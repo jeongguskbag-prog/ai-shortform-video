@@ -101,7 +101,7 @@ class ShortsPipeline:
             status=JobStatus.COMPLETED,
             progress=FINAL_DONE,
             duration_sec=round(duration, 2),
-            video_url=f"/static/{job.job_id}/{final_name}",
+            video_file=final_name,
         )
         logger.info("작업 %s 완료: %d개 씬, %.1f초", job.job_id, len(plan.scenes), duration)
 
