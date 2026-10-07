@@ -68,7 +68,7 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
                 await asyncio.gather(cleaner, *app.state.tasks, return_exceptions=True)
 
     app = FastAPI(
-        title="AI Shorts Generator API",
+        title="AI 쇼폼 비디오",
         version="2.0.0",
         description="대본 한 편으로 자막·나레이션·이미지가 들어간 9:16 쇼츠 영상을 생성합니다.",
         lifespan=lifespan,
