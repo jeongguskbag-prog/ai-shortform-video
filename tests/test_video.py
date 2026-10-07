@@ -63,3 +63,20 @@ async def test_render_and_concat(tmp_path, spec):
 async def test_run_command_reports_stderr(tmp_path):
     with pytest.raises(video.FFmpegError, match="exit"):
         await video.run_command(["ffprobe", str(tmp_path / "missing.mp4")], timeout=10)
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_run_command_falls_back_without_async_subprocess(monkeypatch, tmp_path):
+    """Windows SelectorEventLoop처럼 비동기 subprocess가 없는 환경에서도 동작해야 함."""
+    import asyncio
+
+    async def unsupported(*args, **kwargs):
+        raise NotImplementedError
+
+    monkeypatch.setattr(asyncio, "create_subprocess_exec", unsupported)
+    audio = tmp_path / "a.mp3"
+    await FakeTTS().synthesize("x", audio)
+    assert await video.probe_duration(audio) == pytest.approx(1.0, abs=0.1)
+    with pytest.raises(video.FFmpegError, match="exit"):
+        await video.run_command(["ffprobe", str(tmp_path / "missing.mp4")], timeout=10)

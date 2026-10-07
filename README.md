@@ -33,7 +33,22 @@ docker run --env-file .env -p 8000:8000 -v "$PWD/output:/app/output" ai-shorts
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 cp .env.example .env   # GEMINI_API_KEY 입력
-python main.py         # 또는 uvicorn app.main:app --reload
+python main.py         # 개발 중 자동 재시작: python main.py --reload
+```
+
+### Windows
+
+PowerShell에서 실행합니다. 한글 자막 폰트는 기본 설치된 맑은 고딕을 자동으로 사용합니다.
+
+```powershell
+winget install Python.Python.3.12 Gyan.FFmpeg Git.Git   # 설치 후 PowerShell을 새로 여세요
+git clone https://github.com/jeongguskbag-prog/ai-shortform-video.git
+cd ai-shortform-video
+py -3.12 -m venv .venv
+.venv\Scripts\Activate.ps1      # 막히면: Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+pip install -r requirements.txt
+copy .env.example .env           # 메모장으로 열어 GEMINI_API_KEY 입력: notepad .env
+python main.py
 ```
 
 웹 화면: http://localhost:8000 — 대본 입력, 분위기 선택, 진행 상황, 영상 미리보기·다운로드, 최근 작업 목록

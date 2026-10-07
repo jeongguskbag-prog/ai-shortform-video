@@ -78,8 +78,18 @@ def find_korean_font(configured: Path | None = None) -> Path:
     )
 
 
-async def run_command(args: list[str], *, timeout: float) -> str:
-    """외부 프로세스를 이벤트 루프를 막지 않고 실행합니다."""
+def _run_blocking(args: list[str], timeout: float) -> tuple[int, bytes, bytes]:
+    proc = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    try:
+        stdout, stderr = proc.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        proc.kill()
+        proc.communicate()
+        raise TimeoutError(f"{Path(args[0]).name}이(가) {timeout:.0f}초 안에 끝나지 않았습니다.") from None
+    return proc.returncode, stdout, stderr
+
+
+async def _run_async(args: list[str], timeout: float) -> tuple[int, bytes, bytes]:
     proc = await asyncio.create_subprocess_exec(
         *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
     )
@@ -89,9 +99,20 @@ async def run_command(args: list[str], *, timeout: float) -> str:
         proc.kill()
         await proc.wait()
         raise
-    if proc.returncode != 0:
+    return proc.returncode or 0, stdout, stderr
+
+
+async def run_command(args: list[str], *, timeout: float) -> str:
+    """외부 프로세스를 이벤트 루프를 막지 않고 실행합니다."""
+    try:
+        returncode, stdout, stderr = await _run_async(args, timeout)
+    except NotImplementedError:
+        # Windows의 SelectorEventLoop(예: uvicorn --reload)는 비동기 subprocess를 지원하지 않으므로
+        # 별도 스레드에서 실행합니다.
+        returncode, stdout, stderr = await asyncio.to_thread(_run_blocking, args, timeout)
+    if returncode != 0:
         tail = stderr.decode(errors="replace").strip().splitlines()[-15:]
-        raise FFmpegError(f"{Path(args[0]).name} 실패 (exit {proc.returncode}):\n" + "\n".join(tail))
+        raise FFmpegError(f"{Path(args[0]).name} 실패 (exit {returncode}):\n" + "\n".join(tail))
     return stdout.decode(errors="replace")
 
 
