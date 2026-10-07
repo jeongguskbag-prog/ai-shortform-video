@@ -6,10 +6,11 @@ from contextlib import asynccontextmanager, suppress
 from datetime import timedelta
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from .auth import require_api_key
 from .config import Settings, get_settings
 from .jobs import JobStore
 from .pipeline import Providers, ShortsPipeline
@@ -56,6 +57,10 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
         )
         logger.info("자막 폰트: %s", spec.font_path)
 
+        app.state.api_keys = settings.api_key_list
+        if not app.state.api_keys:
+            logger.warning("API_KEYS가 비어 있어 인증 없이 실행합니다. 외부에 공개하지 마세요.")
+
         app.state.jobs = JobStore()
         app.state.pipeline = ShortsPipeline(
             providers or build_default_providers(settings), settings, spec
@@ -85,13 +90,15 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
 
     @app.get("/health", tags=["system"])
     async def health(request: Request) -> dict:
-        return {"status": "ok", "jobs": len(request.app.state.jobs)}
+        # 웹 화면이 키 입력란을 띄울지 판단하는 데 씁니다. 작업 수 같은 내부 정보는 노출하지 않습니다.
+        return {"status": "ok", "auth_required": bool(request.app.state.api_keys)}
 
     @app.post(
         "/api/v1/shorts/generate",
         response_model=CreateJobResponse,
         status_code=status.HTTP_202_ACCEPTED,
         tags=["shorts"],
+        dependencies=[Depends(require_api_key)],
     )
     async def create_shorts_job(req: ScriptRequest, request: Request) -> CreateJobResponse:
         state = request.app.state
@@ -108,7 +115,10 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
         )
 
     @app.get(
-        "/api/v1/shorts/status/{job_id}", response_model=JobStatusResponse, tags=["shorts"]
+        "/api/v1/shorts/status/{job_id}",
+        response_model=JobStatusResponse,
+        tags=["shorts"],
+        dependencies=[Depends(require_api_key)],
     )
     async def get_job_status(job_id: str, request: Request) -> JobStatusResponse:
         job = request.app.state.jobs.get(job_id)

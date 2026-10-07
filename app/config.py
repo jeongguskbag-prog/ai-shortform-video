@@ -10,6 +10,12 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
+    # --- 인증 ---
+    api_keys: str = Field(
+        default="",
+        description="쉼표로 구분한 API 키 목록 (API_KEYS). 비우면 인증을 끕니다.",
+    )
+
     # --- 외부 서비스 ---
     gemini_api_key: str | None = Field(default=None, description="Gemini API 키 (GEMINI_API_KEY)")
     llm_model: str = "gemini-2.5-flash"
@@ -33,6 +39,10 @@ class Settings(BaseSettings):
     max_retries: int = Field(default=3, ge=1)
     ffmpeg_timeout_sec: float = 300.0
     job_ttl_hours: float = Field(default=24.0, gt=0, description="완료된 작업과 파일을 보관하는 시간")
+
+    @property
+    def api_key_list(self) -> tuple[str, ...]:
+        return tuple(k.strip() for k in self.api_keys.split(",") if k.strip())
 
 
 @lru_cache

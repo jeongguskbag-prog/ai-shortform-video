@@ -59,7 +59,7 @@ class JobStore:
         self._jobs: dict[str, Job] = {}
 
     def create(self, script: str, tone: str) -> Job:
-        job = Job(job_id=uuid.uuid4().hex[:12], script=script, tone=tone)
+        job = Job(job_id=uuid.uuid4().hex, script=script, tone=tone)
         self._jobs[job.job_id] = job
         return job
 

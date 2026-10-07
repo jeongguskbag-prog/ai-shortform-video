@@ -42,15 +42,30 @@ API 문서: http://localhost:8000/docs
 
 ## API
 
+### 인증
+
+`.env`의 `API_KEYS`에 키를 넣으면 `/api/v1/*` 요청에 키가 필요합니다. 쉼표로 여러 개를 넣을 수 있어 키를 바꿀 때
+새 키를 추가하고 옛 키를 나중에 지우면 됩니다. 비워 두면 인증 없이 실행됩니다 (로컬 개발용).
+
+```bash
+python -c "import secrets; print(secrets.token_urlsafe(32))"   # 키 생성
+```
+
+- 헤더: `X-API-Key: <키>` 또는 `Authorization: Bearer <키>`
+- 웹 화면은 서버가 인증을 요구하면 키 입력란을 보여주고, 입력한 키를 그 브라우저에만 저장합니다.
+- `/`, `/health`, `/docs`는 공개입니다. 완성 영상(`/static/...`)은 `<video>` 태그로 재생해야 해서 키 없이 열리지만,
+  주소에 추측할 수 없는 128비트 작업 ID가 들어가 링크를 아는 사람만 볼 수 있습니다.
+
 ```bash
 # 작업 생성 (202 Accepted)
 curl -X POST localhost:8000/api/v1/shorts/generate \
+  -H "X-API-Key: $API_KEY" \
   -H 'Content-Type: application/json' \
   -d '{"script": "하루 10분 투자로 인생이 바뀌는 습관 3가지를 알려드릴게요...", "tone": "energetic"}'
 # → {"job_id": "3f9c...", "status": "QUEUED", "status_url": "/api/v1/shorts/status/3f9c...", ...}
 
 # 상태 조회
-curl localhost:8000/api/v1/shorts/status/3f9c...
+curl -H "X-API-Key: $API_KEY" localhost:8000/api/v1/shorts/status/3f9c...
 # → {"status": "COMPLETED", "progress": 100, "video_url": "/static/3f9c.../final_3f9c....mp4",
 #    "title": "...", "scene_count": 6, "duration_sec": 27.4, "warnings": [], ...}
 ```
@@ -75,4 +90,4 @@ pytest
 - 작업 상태는 프로세스 메모리에 저장되므로 **워커 1개**로 실행하세요. 수평 확장이 필요하면 `JobStore`를 Redis로,
   작업 실행을 Celery/arq 같은 큐로 바꾸면 됩니다 (`ShortsPipeline`은 그대로 재사용 가능).
 - 완료된 작업과 파일은 `JOB_TTL_HOURS` 후 자동 삭제됩니다.
-- 이 API에는 인증이 없습니다. 외부에 공개할 때는 리버스 프록시나 API 키 인증을 앞에 두세요.
+- 외부에 공개할 때는 `API_KEYS`를 꼭 설정하고 HTTPS(리버스 프록시) 뒤에서 실행하세요. 키가 평문 헤더로 전송됩니다.

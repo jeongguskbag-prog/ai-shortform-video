@@ -72,12 +72,13 @@
   .card + .card { margin-top: 16px; }
   h2 { font-size: 15px; margin: 0 0 12px; }
   label.field { display: block; font-weight: 600; font-size: 14px; margin-bottom: 8px; }
-  textarea, input[type=text] {
+  textarea, input[type=text], input[type=password] {
     width: 100%; font: inherit; color: inherit; background: var(--surface-2);
     border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; outline: none;
   }
   textarea { min-height: 240px; resize: vertical; }
-  textarea:focus, input[type=text]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .key-section { margin-bottom: 20px; }
+  textarea:focus, input[type=text]:focus, input[type=password]:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
   .hint { display: flex; justify-content: space-between; color: var(--muted); font-size: 12px; margin-top: 6px; }
   .hint .over { color: var(--err); font-weight: 600; }
   .chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
@@ -163,6 +164,11 @@
   <div class="grid">
     <main>
       <form class="card" id="form" novalidate>
+        <div class="key-section" id="key-section" hidden>
+          <label class="field" for="api-key">API 키</label>
+          <input type="password" id="api-key" autocomplete="off" spellcheck="false" placeholder="서버 관리자에게 받은 API 키">
+          <div class="hint"><span>이 서버는 API 키가 있어야 쓸 수 있어요 · 키는 이 브라우저에만 저장돼요</span></div>
+        </div>
         <label class="field" for="script">대본</label>
         <textarea id="script" placeholder="예) 하루 10분 투자로 인생이 바뀌는 습관 3가지를 알려드릴게요. 첫째, 아침에 일어나자마자 물 한 잔 마시기..." required></textarea>
         <div class="hint"><span>10~5,000자 · 문장이 많을수록 씬이 늘어나요</span><span id="count">0 / 5,000</span></div>
@@ -214,6 +220,7 @@
 (() => {
   const API = "/api/v1/shorts";
   const HISTORY_KEY = "shorts.history.v1";
+  const API_KEY_STORAGE = "shorts.apiKey.v1";
   const MAX_HISTORY = 10;
   const POLL_MS = 1500;
   const MIN_LEN = 10, MAX_LEN = 5000;
@@ -235,7 +242,7 @@
   const $ = (id) => document.getElementById(id);
   const els = {
     form: $("form"), script: $("script"), count: $("count"), tones: $("tones"), tone: $("tone"),
-    submit: $("submit"), formError: $("form-error"),
+    submit: $("submit"), formError: $("form-error"), keySection: $("key-section"), apiKey: $("api-key"),
     progressCard: $("progress-card"), stageText: $("stage-text"), pct: $("pct"), bar: $("bar"),
     steps: $("steps"), jobError: $("job-error"), jobWarn: $("job-warn"),
     phone: $("phone"), meta: $("meta"), vTitle: $("v-title"), vSub: $("v-sub"), download: $("download"),
@@ -263,6 +270,26 @@
     history = [entry, ...history.filter((h) => h.job_id !== job.job_id)];
     store.save(history);
     renderHistory();
+  }
+
+  // ---------- API 키 ----------
+  class AuthError extends Error {}
+  try { els.apiKey.value = localStorage.getItem(API_KEY_STORAGE) || ""; } catch {}
+  els.apiKey.addEventListener("input", () => {
+    try { localStorage.setItem(API_KEY_STORAGE, els.apiKey.value.trim()); } catch {}
+  });
+
+  function authHeaders() {
+    const key = els.apiKey.value.trim();
+    return key ? { "X-API-Key": key } : {};
+  }
+
+  function askForKey(message) {
+    els.keySection.hidden = false;
+    els.apiKey.focus();
+    showError(els.formError, message);
+    els.submit.disabled = false;
+    els.submit.textContent = "영상 만들기";
   }
 
   // ---------- 폼 ----------
@@ -309,13 +336,16 @@
     if (script.length < MIN_LEN) return showError(els.formError, `대본을 ${MIN_LEN}자 이상 입력해 주세요.`);
     if (script.length > MAX_LEN) return showError(els.formError, `대본은 ${MAX_LEN.toLocaleString()}자까지 입력할 수 있어요.`);
 
+    if (!els.keySection.hidden && !els.apiKey.value.trim()) return askForKey("API 키를 입력해 주세요.");
+
     els.submit.disabled = true;
     els.submit.textContent = "요청 중…";
     try {
       const res = await fetch(`${API}/generate`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
+        method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
         body: JSON.stringify({ script, tone }),
       });
+      if (res.status === 401) return askForKey("API 키가 올바르지 않아요. 다시 확인해 주세요.");
       const body = await res.json().catch(() => null);
       if (!res.ok) throw new Error(describeApiError(body, res.status));
       upsertHistory({ job_id: body.job_id, status: body.status, preview: script.slice(0, 40) });
@@ -403,7 +433,8 @@
   }
 
   async function fetchStatus(jobId) {
-    const res = await fetch(`${API}/status/${encodeURIComponent(jobId)}`);
+    const res = await fetch(`${API}/status/${encodeURIComponent(jobId)}`, { headers: authHeaders() });
+    if (res.status === 401) throw new AuthError();
     if (res.status === 404) return null;
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     return res.json();
@@ -429,7 +460,11 @@
         renderJob(job);
         upsertHistory(job);
         if (job.status !== "COMPLETED" && job.status !== "FAILED") timer = setTimeout(tick, POLL_MS);
-      } catch {
+      } catch (err) {
+        if (err instanceof AuthError) {
+          if (watching === jobId) watching = null;
+          return askForKey("작업 상태를 보려면 올바른 API 키가 필요해요.");
+        }
         failures += 1;
         els.stageText.textContent = "서버 응답을 기다리는 중…";
         timer = setTimeout(tick, Math.min(POLL_MS * 2 ** failures, 15000));
@@ -466,9 +501,15 @@
   }
   renderHistory();
 
-  // 새로고침해도 진행 중이던 작업을 이어서 보여줌
-  const running = history.find((h) => h.status !== "COMPLETED" && h.status !== "FAILED");
-  if (running) watch(running.job_id);
+  // 서버가 인증을 요구하면 키 입력란을 보여주고, 진행 중이던 작업을 이어서 보여줌
+  (async () => {
+    try {
+      const health = await (await fetch("/health")).json();
+      if (health.auth_required) els.keySection.hidden = false;
+    } catch {}
+    const running = history.find((h) => h.status !== "COMPLETED" && h.status !== "FAILED");
+    if (running) watch(running.job_id);
+  })();
 })();
 </script>
 </body>
