@@ -4,8 +4,10 @@ import shutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
 from datetime import timedelta
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request, status
+from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from .config import Settings, get_settings
@@ -15,6 +17,8 @@ from .schemas import CreateJobResponse, JobStatusResponse, ScriptRequest
 from .services import video
 
 logger = logging.getLogger(__name__)
+
+WEB_INDEX = Path(__file__).parent / "web" / "index.html"
 
 
 def build_default_providers(settings: Settings) -> Providers:
@@ -74,6 +78,10 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
         lifespan=lifespan,
     )
     app.mount("/static", StaticFiles(directory=settings.output_dir), name="static")
+
+    @app.get("/", include_in_schema=False)
+    async def index() -> FileResponse:
+        return FileResponse(WEB_INDEX)
 
     @app.get("/health", tags=["system"])
     async def health(request: Request) -> dict:

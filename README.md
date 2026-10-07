@@ -36,6 +36,8 @@ cp .env.example .env   # GEMINI_API_KEY 입력
 python main.py         # 또는 uvicorn app.main:app --reload
 ```
 
+웹 화면: http://localhost:8000 — 대본 입력, 분위기 선택, 진행 상황, 영상 미리보기·다운로드, 최근 작업 목록
+
 API 문서: http://localhost:8000/docs
 
 ## API
