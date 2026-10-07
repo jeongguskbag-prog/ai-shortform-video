@@ -1,0 +1,137 @@
+"""쇼츠 생성 파이프라인: 기획 → (씬별 TTS + 이미지 + 렌더링, 병렬) → 이어 붙이기."""
+
+import asyncio
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Protocol
+
+from .config import Settings
+from .jobs import Job
+from .schemas import JobStatus, ScenePlan, ShortsPlan
+from .services import video
+from .services.images import make_placeholder
+
+logger = logging.getLogger(__name__)
+
+# 진행률 구간
+PLAN_START, ASSETS_START, ASSETS_END, FINAL_DONE = 5, 15, 90, 100
+
+
+class Planner(Protocol):
+    async def plan(self, script: str, tone: str) -> ShortsPlan: ...
+
+
+class TTSEngine(Protocol):
+    async def synthesize(self, text: str, output_path: Path) -> None: ...
+
+
+class ImageGenerator(Protocol):
+    async def generate(self, prompt: str, output_path: Path) -> None: ...
+
+
+@dataclass
+class Providers:
+    planner: Planner
+    tts: TTSEngine
+    images: ImageGenerator
+
+
+class ShortsPipeline:
+    def __init__(self, providers: Providers, settings: Settings, spec: video.VideoSpec) -> None:
+        self._providers = providers
+        self._settings = settings
+        self._spec = spec
+        self._job_slots = asyncio.Semaphore(settings.max_concurrent_jobs)
+        self._scene_slots = asyncio.Semaphore(settings.max_concurrent_scenes)
+
+    async def run(self, job: Job) -> None:
+        """작업을 끝까지 실행합니다. 예외는 삼키지 않고 job 상태에 기록합니다."""
+        job_dir = self._settings.output_dir / job.job_id
+        try:
+            async with self._job_slots:
+                job_dir.mkdir(parents=True, exist_ok=True)
+                await self._run(job, job_dir)
+        except asyncio.CancelledError:
+            job.update(status=JobStatus.FAILED, error="서버 종료로 작업이 취소되었습니다.")
+            raise
+        except Exception as exc:
+            logger.exception("작업 %s 실패", job.job_id)
+            root: BaseException = exc
+            while isinstance(root, BaseExceptionGroup) and root.exceptions:
+                root = root.exceptions[0]  # TaskGroup이 감싼 실제 원인을 보여줌
+            job.update(status=JobStatus.FAILED, error=f"{type(root).__name__}: {root}")
+
+    async def _run(self, job: Job, job_dir: Path) -> None:
+        job.update(status=JobStatus.PLANNING, progress=PLAN_START)
+        plan = await self._providers.planner.plan(job.script, job.tone)
+        (job_dir / "plan.json").write_text(plan.model_dump_json(indent=2), encoding="utf-8")
+        job.update(
+            status=JobStatus.GENERATING_ASSETS,
+            progress=ASSETS_START,
+            title=plan.title,
+            scene_count=len(plan.scenes),
+        )
+
+        done = 0
+        step = (ASSETS_END - ASSETS_START) / len(plan.scenes)
+
+        async def build(index: int, scene: ScenePlan) -> Path:
+            nonlocal done
+            async with self._scene_slots:
+                path = await self._build_scene(job, job_dir, index, scene)
+            done += 1
+            job.update(progress=ASSETS_START + int(step * done))
+            return path
+
+        # TaskGroup: 하나라도 실패하면 나머지 씬 작업을 즉시 취소합니다.
+        async with asyncio.TaskGroup() as tg:
+            tasks = [tg.create_task(build(i, s)) for i, s in enumerate(plan.scenes)]
+        scene_paths = [t.result() for t in tasks]
+
+        job.update(status=JobStatus.RENDERING_FINAL, progress=ASSETS_END)
+        final_name = f"final_{job.job_id}.mp4"
+        duration = await video.concat_scenes(
+            scene_paths, job_dir / final_name, timeout=self._settings.ffmpeg_timeout_sec
+        )
+        for path in scene_paths:  # 중간 산출물 정리 (이미지·음성·기획은 디버깅용으로 남김)
+            path.unlink(missing_ok=True)
+
+        job.update(
+            status=JobStatus.COMPLETED,
+            progress=FINAL_DONE,
+            duration_sec=round(duration, 2),
+            video_url=f"/static/{job.job_id}/{final_name}",
+        )
+        logger.info("작업 %s 완료: %d개 씬, %.1f초", job.job_id, len(plan.scenes), duration)
+
+    async def _build_scene(self, job: Job, job_dir: Path, index: int, scene: ScenePlan) -> Path:
+        n = index + 1
+        audio_path = job_dir / f"audio_{n:02d}.mp3"
+        image_path = job_dir / f"image_{n:02d}.png"
+        subtitle_path = job_dir / f"subtitle_{n:02d}.png"
+        scene_path = job_dir / f"scene_{n:02d}.mp4"
+
+        async def image_with_fallback() -> None:
+            try:
+                await self._providers.images.generate(scene.visual_prompt, image_path)
+            except Exception as exc:
+                logger.warning("작업 %s 씬 %d 이미지 생성 실패, 대체 이미지 사용: %s", job.job_id, n, exc)
+                job.warnings.append(f"씬 {n}: 이미지 생성 실패로 대체 배경을 사용했습니다 ({exc}).")
+                await make_placeholder(scene.visual_prompt, self._spec.size, image_path)
+
+        # 음성은 필수, 이미지는 실패해도 대체 배경으로 진행
+        await asyncio.gather(
+            self._providers.tts.synthesize(scene.narration, audio_path),
+            image_with_fallback(),
+            video.render_subtitle_png(scene.subtitle_text, self._spec, subtitle_path),
+        )
+        await video.render_scene(
+            image_path=image_path,
+            audio_path=audio_path,
+            subtitle_png=subtitle_path,
+            output_path=scene_path,
+            spec=self._spec,
+            zoom_in=index % 2 == 0,  # 씬마다 줌 인/아웃을 번갈아 단조로움을 줄임
+        )
+        return scene_path
