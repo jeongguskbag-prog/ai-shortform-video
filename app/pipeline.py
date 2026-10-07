@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .config import Settings
+from .errors import describe_error, is_retryable
 from .jobs import Job
 from .schemas import JobStatus, ScenePlan, ShortsPlan
 from .services import video
@@ -60,7 +61,7 @@ class ShortsPipeline:
             root: BaseException = exc
             while isinstance(root, BaseExceptionGroup) and root.exceptions:
                 root = root.exceptions[0]  # TaskGroup이 감싼 실제 원인을 보여줌
-            job.update(status=JobStatus.FAILED, error=f"{type(root).__name__}: {root}")
+            job.update(status=JobStatus.FAILED, error=describe_error(root))
 
     async def _run(self, job: Job, job_dir: Path) -> None:
         job.update(status=JobStatus.PLANNING, progress=PLAN_START)
@@ -75,11 +76,12 @@ class ShortsPipeline:
 
         done = 0
         step = (ASSETS_END - ASSETS_START) / len(plan.scenes)
+        images = _ImageFailures()
 
         async def build(index: int, scene: ScenePlan) -> Path:
             nonlocal done
             async with self._scene_slots:
-                path = await self._build_scene(job, job_dir, index, scene)
+                path = await self._build_scene(job, job_dir, index, scene, images)
             done += 1
             job.update(progress=ASSETS_START + int(step * done))
             return path
@@ -88,6 +90,7 @@ class ShortsPipeline:
         async with asyncio.TaskGroup() as tg:
             tasks = [tg.create_task(build(i, s)) for i, s in enumerate(plan.scenes)]
         scene_paths = [t.result() for t in tasks]
+        job.warnings.extend(images.summary())
 
         job.update(status=JobStatus.RENDERING_FINAL, progress=ASSETS_END)
         final_name = f"final_{job.job_id}.mp4"
@@ -105,7 +108,9 @@ class ShortsPipeline:
         )
         logger.info("작업 %s 완료: %d개 씬, %.1f초", job.job_id, len(plan.scenes), duration)
 
-    async def _build_scene(self, job: Job, job_dir: Path, index: int, scene: ScenePlan) -> Path:
+    async def _build_scene(
+        self, job: Job, job_dir: Path, index: int, scene: ScenePlan, images: "_ImageFailures"
+    ) -> Path:
         n = index + 1
         audio_path = job_dir / f"audio_{n:02d}.mp3"
         image_path = job_dir / f"image_{n:02d}.png"
@@ -113,12 +118,20 @@ class ShortsPipeline:
         scene_path = job_dir / f"scene_{n:02d}.mp4"
 
         async def image_with_fallback() -> None:
-            try:
-                await self._providers.images.generate(scene.visual_prompt, image_path)
-            except Exception as exc:
-                logger.warning("작업 %s 씬 %d 이미지 생성 실패, 대체 이미지 사용: %s", job.job_id, n, exc)
-                job.warnings.append(f"씬 {n}: 이미지 생성 실패로 대체 배경을 사용했습니다 ({exc}).")
-                await make_placeholder(scene.visual_prompt, self._spec.size, image_path)
+            if images.blocked:
+                # 한도 0·키 오류처럼 다시 해도 안 되는 오류가 이미 났다면 요청을 아낍니다.
+                images.add(n, images.blocked)
+            else:
+                try:
+                    await self._providers.images.generate(scene.visual_prompt, image_path)
+                    return
+                except Exception as exc:
+                    reason = describe_error(exc)
+                    logger.warning("작업 %s 씬 %d 이미지 생성 실패, 대체 배경 사용: %s", job.job_id, n, reason)
+                    images.add(n, reason)
+                    if not is_retryable(exc):
+                        images.blocked = reason
+            await make_placeholder(scene.visual_prompt, self._spec.size, image_path)
 
         # 음성은 필수, 이미지는 실패해도 대체 배경으로 진행
         await asyncio.gather(
@@ -135,3 +148,20 @@ class ShortsPipeline:
             zoom_in=index % 2 == 0,  # 씬마다 줌 인/아웃을 번갈아 단조로움을 줄임
         )
         return scene_path
+
+
+class _ImageFailures:
+    """작업 하나의 이미지 실패를 모아 같은 이유끼리 경고 하나로 묶습니다."""
+
+    def __init__(self) -> None:
+        self.blocked: str | None = None
+        self._scenes_by_reason: dict[str, list[int]] = {}
+
+    def add(self, scene_no: int, reason: str) -> None:
+        self._scenes_by_reason.setdefault(reason, []).append(scene_no)
+
+    def summary(self) -> list[str]:
+        return [
+            f"씬 {', '.join(map(str, sorted(scenes)))}: 이미지 생성 실패로 대체 배경을 사용했습니다 — {reason}"
+            for reason, scenes in self._scenes_by_reason.items()
+        ]

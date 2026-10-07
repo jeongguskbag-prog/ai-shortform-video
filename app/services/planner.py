@@ -1,9 +1,12 @@
 """대본 → 씬 기획 (Gemini)."""
 
+import logging
+
 from google import genai
 from google.genai import types
 
 from ..config import Settings
+from ..errors import api_error_code, is_retryable
 from ..retry import with_retry
 from ..schemas import MAX_SCENES, ScenePlan, ShortsPlan
 
@@ -20,6 +23,9 @@ SYSTEM_INSTRUCTION = """\
 - scene_id는 1부터 시작하는 연속된 정수입니다.
 - 씬은 최소 1개, 최대 {max_scenes}개입니다.
 """
+
+
+logger = logging.getLogger(__name__)
 
 
 class PlanningError(RuntimeError):
@@ -62,9 +68,9 @@ class GeminiPlanner:
             temperature=0.7,
         )
 
-        async def call() -> ShortsPlan:
+        async def call(model: str) -> ShortsPlan:
             response = await self._client.aio.models.generate_content(
-                model=self._settings.llm_model, contents=prompt, config=config
+                model=model, contents=prompt, config=config
             )
             if isinstance(response.parsed, ShortsPlan):
                 return response.parsed
@@ -72,5 +78,20 @@ class GeminiPlanner:
                 raise PlanningError("LLM이 빈 응답을 반환했습니다.")
             return ShortsPlan.model_validate_json(response.text)
 
-        plan = await with_retry(call, attempts=self._settings.max_retries, what="씬 기획")
-        return normalize_plan(plan)
+        models = [self._settings.llm_model]
+        if self._settings.llm_fallback_model and self._settings.llm_fallback_model not in models:
+            models.append(self._settings.llm_fallback_model)
+
+        for i, model in enumerate(models):
+            try:
+                plan = await with_retry(
+                    lambda m=model: call(m), attempts=self._settings.max_retries, what=f"씬 기획({model})"
+                )
+                return normalize_plan(plan)
+            except Exception as exc:
+                # 과부하·일시 오류이거나 모델이 내려간 경우(404)에만 예비 모델로 넘어갑니다.
+                # 키 오류 같은 문제는 예비 모델로도 해결되지 않으므로 바로 알립니다.
+                if i == len(models) - 1 or not (is_retryable(exc) or api_error_code(exc) == 404):
+                    raise
+                logger.warning("씬 기획 모델 %s 실패, 예비 모델 %s로 전환: %s", model, models[i + 1], exc)
+        raise AssertionError("unreachable")

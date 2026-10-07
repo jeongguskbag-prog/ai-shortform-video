@@ -24,8 +24,12 @@ class Settings(BaseSettings):
 
     # --- 외부 서비스 ---
     gemini_api_key: str | None = Field(default=None, description="Gemini API 키 (GEMINI_API_KEY)")
-    llm_model: str = "gemini-2.5-flash"
-    image_model: str = "imagen-4.0-generate-001"
+    # "-latest" 별칭은 Google이 최신 안정 모델로 자동 연결해 줘서, 특정 버전이 내려가도 404가 나지 않습니다.
+    llm_model: str = "gemini-flash-latest"
+    # 기본 모델이 과부하(503) 등으로 계속 실패하면 이 모델로 한 번 더 시도합니다. 비우면 사용하지 않습니다.
+    llm_fallback_model: str = "gemini-flash-lite-latest"
+    # Gemini 이미지 모델(generate_content)과 Imagen 모델(imagen-*, generate_images)을 모두 지원합니다.
+    image_model: str = "gemini-3.1-flash-image"
     tts_voice: str = "ko-KR-SunHiNeural"
     tts_rate: str = "+15%"
 

@@ -4,6 +4,8 @@ import random
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+from .errors import is_retryable
+
 T = TypeVar("T")
 logger = logging.getLogger(__name__)
 
@@ -23,7 +25,7 @@ async def with_retry(
         except asyncio.CancelledError:
             raise
         except Exception as exc:
-            if attempt == attempts:
+            if attempt == attempts or not is_retryable(exc):
                 raise
             delay = min(max_delay, base_delay * 2 ** (attempt - 1)) * (0.5 + random.random())
             logger.warning("%s 실패 (%d/%d): %s — %.1f초 후 재시도", what, attempt, attempts, exc, delay)

@@ -38,7 +38,9 @@ async def test_end_to_end_with_image_fallback(settings):
         assert body["status"] == "COMPLETED", body["error"]
         assert body["progress"] == 100
         assert body["scene_count"] == 3
-        assert len(body["warnings"]) == 3  # 씬마다 대체 이미지 사용
+        # 같은 이유의 이미지 실패는 경고 하나로 묶임
+        assert len(body["warnings"]) == 1
+        assert body["warnings"][0].startswith("씬 1, 2, 3: ")
         assert body["duration_sec"] > 3
 
         video_resp = await client.get(body["video_url"])
