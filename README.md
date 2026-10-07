@@ -1,4 +1,4 @@
-# AI 쇼폼 비디오
+# ai-shortform-video
 
 대본 한 편을 입력하면 **Gemini**가 씬을 기획하고, **Edge TTS**로 나레이션을, **Imagen**으로 씬 이미지를 만든 뒤
 **FFmpeg**로 자막·켄 번스 효과가 들어간 9:16 쇼츠 영상을 합성하는 FastAPI 서버입니다.
