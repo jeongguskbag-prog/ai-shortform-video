@@ -53,8 +53,16 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # 키 생성
 
 - 헤더: `X-API-Key: <키>` 또는 `Authorization: Bearer <키>`
 - 웹 화면은 서버가 인증을 요구하면 키 입력란을 보여주고, 입력한 키를 그 브라우저에만 저장합니다.
-- `/`, `/health`, `/docs`는 공개입니다. 완성 영상(`/static/...`)은 `<video>` 태그로 재생해야 해서 키 없이 열리지만,
-  주소에 추측할 수 없는 128비트 작업 ID가 들어가 링크를 아는 사람만 볼 수 있습니다.
+- `/`, `/health`, `/docs`는 공개입니다.
+
+### 영상 링크
+
+완성 영상은 `<video>` 태그로 재생해야 해서 API 키 대신 **서명된 링크**로 엽니다.
+
+- 상태 조회 응답의 `video_url`은 `/videos/{job_id}/{파일}?expires=...&sig=...` 형태이며, `video_url_expires_at`까지만
+  열립니다 (기본 1시간, `VIDEO_URL_TTL_SEC`). 서명은 HMAC-SHA256이라 주소나 만료 시각을 바꾸면 403이 됩니다.
+- 만료되면 상태를 다시 조회해 새 링크를 받으세요. 웹 화면은 이를 자동으로 처리합니다.
+- `URL_SIGNING_SECRET`을 비워 두면 서버가 시작할 때마다 새 비밀키를 만들어, 재시작하면 기존 링크가 모두 무효가 됩니다.
 
 ```bash
 # 작업 생성 (202 Accepted)
@@ -66,7 +74,8 @@ curl -X POST localhost:8000/api/v1/shorts/generate \
 
 # 상태 조회
 curl -H "X-API-Key: $API_KEY" localhost:8000/api/v1/shorts/status/3f9c...
-# → {"status": "COMPLETED", "progress": 100, "video_url": "/static/3f9c.../final_3f9c....mp4",
+# → {"status": "COMPLETED", "progress": 100, "video_url": "/videos/3f9c.../final_3f9c....mp4?expires=...&sig=...",
+#    "video_url_expires_at": "...",
 #    "title": "...", "scene_count": 6, "duration_sec": 27.4, "warnings": [], ...}
 ```
 

@@ -410,17 +410,51 @@
   }
 
   function resetPreview() {
+    resetShown();
     if (!els.phone.querySelector(".empty")) els.phone.innerHTML = phoneEmpty;
     els.meta.hidden = true;
   }
 
+  // 영상 링크는 서명되어 일정 시간 뒤 만료됩니다. 만료되면 상태를 다시 조회해 새 링크를 받습니다.
+  let shown = null;   // { job_id, video_url, expires }
+
+  function linkExpired() {
+    return !shown || Date.now() > shown.expires - 10_000;
+  }
+
+  async function refreshLink() {
+    const job = await fetchStatus(shown.job_id);
+    if (!job?.video_url) throw new Error("영상을 더 이상 찾을 수 없어요.");
+    showVideo(job);
+  }
+
   function showVideo(job) {
-    const current = els.phone.querySelector("video");
-    if (!current || current.dataset.src !== job.video_url) {
-      const v = document.createElement("video");
-      v.src = job.video_url; v.dataset.src = job.video_url;
+    const sameJob = shown?.job_id === job.job_id;
+    shown = {
+      job_id: job.job_id, video_url: job.video_url,
+      expires: job.video_url_expires_at ? Date.parse(job.video_url_expires_at) : Infinity,
+    };
+    let v = els.phone.querySelector("video");
+    if (!v || !sameJob) {
+      v = document.createElement("video");
       v.controls = true; v.playsInline = true; v.preload = "metadata";
+      v.addEventListener("error", () => {
+        // 만료된 링크로 재생하다 실패하면 한 번만 새 링크로 다시 시도
+        if (v.dataset.retried || !linkExpired()) return;
+        v.dataset.retried = "1";
+        refreshLink().catch(() => {});
+      });
       els.phone.replaceChildren(v);
+      v.src = job.video_url;
+    } else if (v.getAttribute("src") !== job.video_url) {
+      // 같은 영상의 링크만 바뀐 경우 재생 위치를 유지
+      const t = v.currentTime, playing = !v.paused;
+      v.src = job.video_url;
+      v.addEventListener("loadedmetadata", () => {
+        v.currentTime = t;
+        if (playing) v.play().catch(() => {});
+        delete v.dataset.retried;
+      }, { once: true });
     }
     els.vTitle.textContent = job.title || "제목 없음";
     const parts = [];
@@ -431,6 +465,19 @@
     els.download.setAttribute("download", `${(job.title || job.job_id).replace(/[\\/:*?"<>|]/g, "_")}.mp4`);
     els.meta.hidden = false;
   }
+
+  els.download.addEventListener("click", async (e) => {
+    if (!linkExpired()) return;
+    e.preventDefault();
+    try {
+      await refreshLink();
+      els.download.click();
+    } catch (err) {
+      showError(els.jobError, err instanceof AuthError ? "API 키를 확인해 주세요." : "영상 링크를 새로 받지 못했어요.");
+    }
+  });
+
+  function resetShown() { shown = null; }
 
   async function fetchStatus(jobId) {
     const res = await fetch(`${API}/status/${encodeURIComponent(jobId)}`, { headers: authHeaders() });

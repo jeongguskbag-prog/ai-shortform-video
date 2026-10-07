@@ -59,7 +59,8 @@ class JobStatusResponse(BaseModel):
     progress: int = Field(ge=0, le=100)
     title: str | None = None
     scene_count: int | None = None
-    video_url: str | None = None
+    video_url: str | None = Field(default=None, description="서명된 영상 링크. 만료되면 상태를 다시 조회하세요.")
+    video_url_expires_at: datetime | None = None
     duration_sec: float | None = None
     error: str | None = None
     warnings: list[str] = Field(default_factory=list)
