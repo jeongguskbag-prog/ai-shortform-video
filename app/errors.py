@@ -29,6 +29,25 @@ def is_retryable(exc: BaseException) -> bool:
     return True
 
 
+_SHORT_HINTS = {
+    400: "요청 거부",
+    401: "API 키가 올바르지 않음",
+    403: "API 키 권한 없음",
+    404: "모델·주소를 찾을 수 없음",
+    429: "사용량 한도 초과 (무료 등급이거나 결제 필요)",
+    500: "서버 오류",
+    503: "사용량이 많아 일시적으로 응답 없음",
+}
+
+
+def short_reason(exc: BaseException) -> str:
+    """화면 경고용 짧은 한국어 이유. 영어 원문은 서버 로그에만 남깁니다."""
+    code = api_error_code(exc)
+    if code is not None:
+        return _SHORT_HINTS.get(code, f"오류 (HTTP {code})")
+    return str(exc) or type(exc).__name__
+
+
 def describe_error(exc: BaseException, limit: int = 200) -> str:
     code = api_error_code(exc)
     if code is not None:

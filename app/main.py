@@ -27,16 +27,33 @@ WEB_INDEX = Path(__file__).parent / "web" / "index.html"
 def build_default_providers(settings: Settings) -> Providers:
     from google import genai
 
-    from .services.images import GeminiImageGenerator
+    from .services.images import (
+        GeminiImageGenerator,
+        ImageSourceChain,
+        NotConfiguredSource,
+        PexelsImageSource,
+    )
     from .services.planner import GeminiPlanner
     from .services.tts import EdgeTTS
 
     # api_key가 None이면 SDK가 GEMINI_API_KEY / GOOGLE_API_KEY 환경변수를 사용합니다.
     client = genai.Client(api_key=settings.gemini_api_key)
+    sources: list[tuple[str, object]] = []
+    for name in (n.strip().lower() for n in settings.image_sources.split(",")):
+        if name == "gemini":
+            sources.append(("Gemini", GeminiImageGenerator(client, settings)))
+        elif name == "pexels":
+            if settings.pexels_api_key:
+                sources.append(("Pexels", PexelsImageSource(settings.pexels_api_key, settings)))
+            else:
+                hint = "PEXELS_API_KEY를 설정하면 무료 사진을 쓸 수 있어요"
+                sources.append(("Pexels", NotConfiguredSource(hint)))
+        elif name:
+            logger.warning("알 수 없는 이미지 소스 %r는 건너뜁니다 (gemini, pexels 중 선택)", name)
     return Providers(
         planner=GeminiPlanner(client, settings),
         tts=EdgeTTS(settings),
-        images=GeminiImageGenerator(client, settings),
+        images=ImageSourceChain(sources, settings.image_source_cooldown_sec),
     )
 
 

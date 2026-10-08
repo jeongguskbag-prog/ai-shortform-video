@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     llm_fallback_model: str = "gemini-flash-lite-latest"
     # Gemini 이미지 모델(generate_content)과 Imagen 모델(imagen-*, generate_images)을 모두 지원합니다.
     image_model: str = "gemini-3.1-flash-image"
+    # 무료 사진(Pexels) API 키. https://www.pexels.com/api/ 에서 무료로 발급받습니다.
+    pexels_api_key: str = ""
+    # 이미지를 시도할 순서. 앞의 것이 실패하면 다음 것을 쓰고, 모두 실패하면 그라디언트 배경을 씁니다.
+    image_sources: str = "gemini,pexels"
+    # 한도 초과·키 오류처럼 다시 해도 안 되는 오류가 난 이미지 소스는 이 시간(초) 동안 건너뜁니다.
+    image_source_cooldown_sec: int = Field(default=3600, ge=0)
     tts_voice: str = "ko-KR-SunHiNeural"
     tts_rate: str = "+15%"
 

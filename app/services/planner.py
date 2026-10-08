@@ -20,6 +20,8 @@ SYSTEM_INSTRUCTION = """\
 - subtitle_text는 화면에 띄울 짧은 한국어 자막입니다. narration의 핵심만 25자 이내로 요약하세요.
 - visual_prompt는 이미지 생성 AI용 영어 묘사입니다. 피사체, 배경, 구도, 조명, 색감을 구체적으로 쓰고,
   이미지 안에 글자·자막·로고가 들어가지 않게 하세요. 모든 씬의 화풍은 일관되게 유지하세요.
+- stock_query는 무료 사진 사이트에서 이 씬에 어울리는 실사 사진을 찾을 영어 검색어 2~4단어입니다.
+  추상적인 표현 대신 사진으로 찍을 수 있는 구체적인 사물·장면을 쓰세요 (예: "glass of water kitchen").
 - scene_id는 1부터 시작하는 연속된 정수입니다.
 - 씬은 최소 1개, 최대 {max_scenes}개입니다.
 """
@@ -45,6 +47,7 @@ def normalize_plan(plan: ShortsPlan) -> ShortsPlan:
                 narration=narration,
                 visual_prompt=scene.visual_prompt.strip() or narration,
                 subtitle_text=scene.subtitle_text.strip() or narration,
+                stock_query=" ".join(scene.stock_query.split()[:6]),
             )
         )
         if len(scenes) == MAX_SCENES:

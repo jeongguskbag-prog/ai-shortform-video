@@ -110,6 +110,7 @@
   .meta { margin-top: 12px; }
   .meta .title { font-weight: 700; }
   .meta .sub { color: var(--muted); font-size: 13px; }
+  .meta .credit { font-size: 12px; margin-top: 2px; word-break: break-word; }
   .actions { display: flex; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
 
   .bar { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin: 6px 0 14px; }
@@ -203,6 +204,7 @@
         <div class="meta" id="meta" hidden>
           <div class="title" id="v-title"></div>
           <div class="sub" id="v-sub"></div>
+          <div class="sub credit" id="v-credit" hidden></div>
           <div class="actions"><a class="btn secondary" id="download" download>다운로드</a></div>
         </div>
       </div>
@@ -245,7 +247,7 @@
     submit: $("submit"), formError: $("form-error"), keySection: $("key-section"), apiKey: $("api-key"),
     progressCard: $("progress-card"), stageText: $("stage-text"), pct: $("pct"), bar: $("bar"),
     steps: $("steps"), jobError: $("job-error"), jobWarn: $("job-warn"),
-    phone: $("phone"), meta: $("meta"), vTitle: $("v-title"), vSub: $("v-sub"), download: $("download"),
+    phone: $("phone"), meta: $("meta"), vTitle: $("v-title"), vSub: $("v-sub"), vCredit: $("v-credit"), download: $("download"),
     history: $("history"), historyEmpty: $("history-empty"),
   };
   const phoneEmpty = els.phone.innerHTML;
@@ -461,6 +463,10 @@
     if (job.scene_count) parts.push(`${job.scene_count}개 씬`);
     if (job.duration_sec) parts.push(`${job.duration_sec.toFixed(1)}초`);
     els.vSub.textContent = parts.join(" · ");
+    // Pexels 이용 조건에 따라 사진 촬영자를 표시합니다.
+    const credits = job.image_credits || [];
+    els.vCredit.textContent = credits.length ? `사진: ${credits.join(", ")}` : "";
+    els.vCredit.hidden = !credits.length;
     els.download.href = job.video_url;
     els.download.setAttribute("download", `${(job.title || job.job_id).replace(/[\\/:*?"<>|]/g, "_")}.mp4`);
     els.meta.hidden = false;

@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Protocol
 
 from .config import Settings
-from .errors import describe_error, is_retryable
+from .errors import describe_error, is_retryable, short_reason
 from .jobs import Job
 from .schemas import JobStatus, ScenePlan, ShortsPlan
 from .services import video
@@ -28,7 +28,9 @@ class TTSEngine(Protocol):
 
 
 class ImageGenerator(Protocol):
-    async def generate(self, prompt: str, output_path: Path) -> None: ...
+    async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
+        """이미지를 output_path에 저장하고, 출처 표기가 필요하면 그 문구를 돌려줍니다."""
+        ...
 
 
 @dataclass
@@ -123,10 +125,14 @@ class ShortsPipeline:
                 images.add(n, images.blocked)
             else:
                 try:
-                    await self._providers.images.generate(scene.visual_prompt, image_path)
+                    credit = await self._providers.images.generate(
+                        scene.visual_prompt, image_path, scene.stock_query
+                    )
+                    if credit and credit not in job.image_credits:
+                        job.image_credits.append(credit)
                     return
                 except Exception as exc:
-                    reason = describe_error(exc)
+                    reason = short_reason(exc)
                     logger.warning("작업 %s 씬 %d 이미지 생성 실패, 대체 배경 사용: %s", job.job_id, n, reason)
                     images.add(n, reason)
                     if not is_retryable(exc):
@@ -162,6 +168,6 @@ class _ImageFailures:
 
     def summary(self) -> list[str]:
         return [
-            f"씬 {', '.join(map(str, sorted(scenes)))}: 이미지 생성 실패로 대체 배경을 사용했습니다 — {reason}"
+            f"씬 {', '.join(map(str, sorted(scenes)))}: 이미지를 만들지 못해 기본 배경을 사용했어요 ({reason})"
             for reason, scenes in self._scenes_by_reason.items()
         ]

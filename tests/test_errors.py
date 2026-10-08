@@ -95,7 +95,7 @@ async def test_permanent_image_error_stops_further_image_calls(settings, spec):
     class QuotaImages:
         calls = 0
 
-        async def generate(self, prompt, output_path):
+        async def generate(self, prompt, output_path, query=""):
             QuotaImages.calls += 1
             raise QUOTA
 
