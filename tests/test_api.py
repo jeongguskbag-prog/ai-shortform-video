@@ -83,3 +83,26 @@ async def test_web_index_served(settings, providers):
         assert r.status_code == 200
         assert r.headers["content-type"].startswith("text/html")
         assert "/api/v1/shorts" in r.text
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_stock_photo_credit_is_reported(settings):
+    from io import BytesIO
+
+    from PIL import Image
+
+    class StockPhotos:
+        async def generate(self, prompt, output_path, query=""):
+            buf = BytesIO()
+            Image.new("RGB", (800, 1200), (30, 120, 60)).save(buf, format="JPEG")
+            output_path.write_bytes(buf.getvalue())  # Pexels처럼 .png 경로에 JPEG 저장
+            return "Kim / Pexels"
+
+    app = create_app(settings, Providers(FakePlanner(2), FakeTTS(), StockPhotos()))
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        job_id = (await client.post("/api/v1/shorts/generate", json={"script": "사진 출처 테스트 대본"})).json()["job_id"]
+        body = await _wait_done(client, job_id)
+        assert body["status"] == "COMPLETED", body["error"]
+        assert body["image_credits"] == ["Kim / Pexels"]  # 씬 2개가 같은 촬영자면 한 번만
+        assert body["warnings"] == []

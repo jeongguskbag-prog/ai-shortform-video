@@ -9,7 +9,7 @@
 대본 ─▶ Gemini 씬 기획 (JSON 스키마 강제, 씬 정규화, 과부하 시 예비 모델로 전환)
         └▶ 씬별 병렬 처리 (동시 실행 수 제한)
              ├ Edge TTS 나레이션        (재시도)
-             ├ Gemini 이미지            (재시도 → 실패 시 대체 배경 + 경고)
+             ├ 이미지: Gemini AI → Pexels 무료 사진 → 그라디언트 배경 순서로 시도
              ├ Pillow 자막 PNG          (한글 폰트, 자동 줄바꿈, 외곽선, 반투명 박스)
              └ FFmpeg 씬 렌더링          (켄 번스 줌 인/아웃 교차, 음성 길이에 맞춤)
         └▶ FFmpeg 무손실 이어 붙이기 (+faststart)
@@ -123,9 +123,13 @@ curl -H "X-API-Key: $API_KEY" localhost:8000/api/v1/shorts/status/3f9c...
 - **씬 기획**은 무료 등급으로 됩니다. 기본값 `gemini-flash-latest`는 Google이 최신 Flash 모델로 자동 연결해 주는 별칭이라
   특정 버전이 내려가도 404가 나지 않습니다. 과부하(503) 등으로 계속 실패하면 `LLM_FALLBACK_MODEL`(기본 `gemini-flash-lite-latest`)로
   한 번 더 시도합니다.
-- **이미지 생성은 무료 등급 한도가 0**이라 결제를 켜야 합니다 (2026년 10월 실제 키로 확인). 결제 전에는 모든 씬이 그라디언트
-  대체 배경으로 만들어지고, 상태 조회의 `warnings`에 이유가 하나로 묶여 표시됩니다. 결제를 켤 때는 AI Studio에서 월 지출 한도도 함께
-  설정하세요.
+- **AI 이미지 생성은 무료 등급 한도가 0**이라 결제를 켜야 합니다 (2026년 10월 실제 키로 확인). 결제를 켤 때는 AI Studio에서
+  월 지출 한도도 함께 설정하세요.
+- **결제 없이 쓰려면 Pexels 무료 사진**을 연결하세요. [pexels.com/api](https://www.pexels.com/api/)에서 가입 후 받은 키를
+  `.env`의 `PEXELS_API_KEY`에 넣으면, AI가 씬마다 만든 영어 검색어로 세로 사진을 찾아 넣습니다. 사진 촬영자는 상태 조회의
+  `image_credits`와 웹 화면 영상 아래에 표시됩니다. 사용 전 [Pexels 라이선스](https://www.pexels.com/license/)를 확인하세요.
+- 이미지는 `IMAGE_SOURCES`(기본 `gemini,pexels`) 순서로 시도합니다. 한도 초과·키 오류가 난 소스는 1시간 동안
+  건너뛰어(`IMAGE_SOURCE_COOLDOWN_SEC`) 결제가 꺼진 Gemini에 씬마다 헛된 요청을 보내지 않습니다. 모두 실패하면 그라디언트 배경을 씁니다.
 - 기본 이미지 모델은 `gemini-3.1-flash-image`입니다. `imagen-`으로 시작하는 모델을 지정하면 Imagen API를 사용합니다.
 - 쓸 수 있는 모델 목록 확인:
   `python -c "from google import genai; [print(m.name) for m in genai.Client().models.list()]"`

@@ -29,6 +29,7 @@ class Job:
     duration_sec: float | None = None
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
+    image_credits: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)
 
@@ -57,6 +58,7 @@ class Job:
             duration_sec=self.duration_sec,
             error=self.error,
             warnings=list(self.warnings),
+            image_credits=list(self.image_credits),
             created_at=self.created_at,
             updated_at=self.updated_at,
         )

@@ -24,6 +24,8 @@ class ScenePlan(BaseModel):
     narration: str
     visual_prompt: str
     subtitle_text: str
+    # 무료 사진 사이트 검색용 영어 키워드 (예: "glass of water morning")
+    stock_query: str = ""
 
 
 class ShortsPlan(BaseModel):
@@ -64,5 +66,6 @@ class JobStatusResponse(BaseModel):
     duration_sec: float | None = None
     error: str | None = None
     warnings: list[str] = Field(default_factory=list)
+    image_credits: list[str] = Field(default_factory=list, description="사용한 사진의 출처 표기")
     created_at: datetime
     updated_at: datetime
