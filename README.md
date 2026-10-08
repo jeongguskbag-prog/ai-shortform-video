@@ -51,6 +51,28 @@ copy .env.example .env           # 메모장으로 열어 GEMINI_API_KEY 입력:
 python main.py
 ```
 
+### 안드로이드 휴대폰 (Termux)
+
+휴대폰 안에서 서버를 돌리고 휴대폰 브라우저로 씁니다. 아이폰은 지원하지 않습니다.
+아직 실제 휴대폰에서 검증하지 않은 방법이며, 처음 설치할 때 패키지 빌드로 10~30분 걸릴 수 있습니다.
+
+1. **Termux**를 [F-Droid](https://f-droid.org/packages/com.termux/) 또는
+   [GitHub 릴리스](https://github.com/termux/termux-app/releases)에서 설치합니다.
+2. Termux에서:
+   ```bash
+   pkg install -y git
+   git clone https://github.com/jeongguskbag-prog/ai-shortform-video.git
+   cd ai-shortform-video
+   bash scripts/termux-setup.sh     # 설치 (처음 한 번)
+   nano .env                         # GEMINI_API_KEY 입력 → Ctrl+O, Enter → Ctrl+X
+   bash scripts/termux-run.sh        # 실행 → 브라우저가 자동으로 열림 (종료: Ctrl+C)
+   ```
+3. 다음부터는 `cd ai-shortform-video && bash scripts/termux-run.sh`만 실행하면 됩니다.
+
+- 자막 폰트는 안드로이드 시스템 폰트(`/system/fonts`의 Noto CJK 등)를 자동으로 찾습니다.
+- 실행 중에는 Termux 절전 해제(wake lock)를 걸어 화면이 꺼져도 영상 생성이 계속됩니다.
+- 발열을 줄이려고 씬을 동시에 2개까지만 만듭니다 (`.env`의 `MAX_CONCURRENT_SCENES`).
+
 웹 화면: http://localhost:8000 — 대본 입력, 분위기 선택, 진행 상황, 영상 미리보기·다운로드, 최근 작업 목록
 
 API 문서: http://localhost:8000/docs

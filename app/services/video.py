@@ -31,6 +31,20 @@ FONT_CANDIDATES = [
     "C:/Windows/Fonts/malgun.ttf",
 ]
 
+# 안드로이드(Termux)는 fontconfig가 없으므로 시스템 폰트 폴더에서 한글 지원 폰트를 찾습니다.
+ANDROID_FONT_DIR = Path("/system/fonts")
+ANDROID_FONT_PATTERNS = ["NotoSansCJK*.ttc", "NotoSansKR*.[ot]tf", "*CJK*.tt[cf]", "*KR*.[ot]tf"]
+
+
+def _find_android_font(font_dir: Path = ANDROID_FONT_DIR) -> Path | None:
+    if not font_dir.is_dir():
+        return None
+    for pattern in ANDROID_FONT_PATTERNS:
+        matches = sorted(font_dir.glob(pattern))
+        if matches:
+            return matches[0]
+    return None
+
 
 class FFmpegError(RuntimeError):
     pass
@@ -67,6 +81,9 @@ def find_korean_font(configured: Path | None = None) -> Path:
     for candidate in FONT_CANDIDATES:
         if Path(candidate).is_file():
             return Path(candidate)
+    android_font = _find_android_font()
+    if android_font is not None:
+        return android_font
     if shutil.which("fc-match"):
         result = subprocess.run(
             ["fc-match", "-f", "%{file}", ":lang=ko"], capture_output=True, text=True, check=False
