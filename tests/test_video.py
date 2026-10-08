@@ -80,3 +80,17 @@ async def test_run_command_falls_back_without_async_subprocess(monkeypatch, tmp_
     assert await video.probe_duration(audio) == pytest.approx(1.0, abs=0.1)
     with pytest.raises(video.FFmpegError, match="exit"):
         await video.run_command(["ffprobe", str(tmp_path / "missing.mp4")], timeout=10)
+
+
+def test_finds_korean_font_in_android_system_dir(tmp_path):
+    for name in ["Roboto-Regular.ttf", "NotoSansCJK-Regular.ttc", "NotoColorEmoji.ttf"]:
+        (tmp_path / name).write_bytes(b"")
+    assert video._find_android_font(tmp_path) == tmp_path / "NotoSansCJK-Regular.ttc"
+
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "Roboto-Regular.ttf").write_bytes(b"")
+    (other / "SECCJK-Regular.ttc").write_bytes(b"")  # 제조사 폰트 이름도 CJK 패턴으로 찾음
+    assert video._find_android_font(other) == other / "SECCJK-Regular.ttc"
+
+    assert video._find_android_font(tmp_path / "missing") is None

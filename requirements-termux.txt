@@ -1,0 +1,8 @@
+# 안드로이드(Termux)용. Pillow는 pkg install python-pillow로 설치합니다.
+# uvicorn[standard]의 uvloop·httptools·watchfiles는 안드로이드에서 빌드가 까다로워 기본 uvicorn을 씁니다.
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+edge-tts>=6.1.12
+google-genai>=1.20.0

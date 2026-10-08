@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# 안드로이드 Termux에서 처음 한 번 실행하는 설치 스크립트.
+#   bash scripts/termux-setup.sh
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+echo "[1/4] 시스템 패키지 설치"
+pkg update -y
+# rust·clang·binutils: 안드로이드용 미리 빌드된 패키지가 없는 pydantic-core 등을 직접 빌드하는 데 필요
+pkg install -y python ffmpeg git nano python-pillow rust clang binutils
+
+echo "[2/4] 파이썬 패키지 설치 (처음에는 빌드 때문에 10~30분 걸릴 수 있어요)"
+# maturin(pydantic-core 빌드 도구)이 안드로이드 API 수준을 요구합니다.
+export ANDROID_API_LEVEL="$(getprop ro.build.version.sdk)"
+# aiohttp 계열은 C 확장 대신 순수 파이썬 버전으로 설치해 빌드 실패를 피합니다.
+export AIOHTTP_NO_EXTENSIONS=1 MULTIDICT_NO_EXTENSIONS=1 YARL_NO_EXTENSIONS=1 \
+       FROZENLIST_NO_EXTENSIONS=1 PROPCACHE_NO_EXTENSIONS=1
+pip install -r requirements-termux.txt
+
+echo "[3/4] 설정 파일 준비"
+if [ ! -f .env ]; then
+  cp .env.example .env
+  # 휴대폰 발열을 줄이기 위해 씬을 동시에 2개까지만 만듭니다.
+  echo "MAX_CONCURRENT_SCENES=2" >> .env
+fi
+
+echo "[4/4] 확인"
+python - <<'PY'
+from app.services.video import ensure_ffmpeg, find_korean_font
+ensure_ffmpeg()
+print("ffmpeg: OK")
+print("자막 폰트:", find_korean_font())
+PY
+
+echo
+echo "설치 완료! 다음 순서로 진행하세요:"
+echo "  1) nano .env  → GEMINI_API_KEY= 뒤에 키 입력 → Ctrl+O, Enter(저장) → Ctrl+X(종료)"
+echo "  2) bash scripts/termux-run.sh"
