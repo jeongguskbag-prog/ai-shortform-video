@@ -117,3 +117,70 @@ async def test_chain_reports_short_korean_reasons_when_all_fail(tmp_path):
     message = str(info.value)
     assert message == "Gemini: 사용량 한도 초과 (무료 등급이거나 결제 필요) / Pexels: PEXELS_API_KEY를 설정하세요"
     assert "quota" not in message  # 영어 원문은 화면에 보이지 않음
+
+
+def json_and_images(api_host: str, payload: dict, seen: list, broken: set[str] = frozenset()):
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == api_host:
+            return httpx.Response(200, json=payload)
+        if str(request.url) in broken:
+            return httpx.Response(404)
+        return httpx.Response(200, content=JPEG)
+
+    return httpx.MockTransport(handler)
+
+
+@pytest.mark.asyncio
+async def test_pixabay_parses_hits_and_sends_key(tmp_path):
+    from app.services.images import PixabayImageSource
+
+    seen = []
+    payload = {"hits": [{"id": 5, "user": "Choi", "largeImageURL": "https://cdn.pixabay.com/5.jpg"}]}
+    source = PixabayImageSource("pk", SETTINGS, transport=json_and_images("pixabay.com", payload, seen))
+    assert await source.generate("x", tmp_path / "a.png", query="coffee cup") == "Choi / Pixabay"
+    params = seen[0].url.params
+    assert (params["key"], params["q"], params["orientation"]) == ("pk", "coffee cup", "vertical")
+
+
+@pytest.mark.asyncio
+async def test_openverse_needs_no_key_filters_licenses_and_skips_broken_images(tmp_path):
+    from app.services.images import OpenverseImageSource
+
+    seen = []
+    payload = {
+        "results": [
+            {"id": "a", "url": "https://broken.example/a.jpg", "creator": "Gone", "license": "by"},
+            {"id": "b", "url": "https://ok.example/b.jpg", "creator": "Jane", "license": "by",
+             "license_version": "2.0"},
+        ]
+    }
+    transport = json_and_images("api.openverse.org", payload, seen, broken={"https://broken.example/a.jpg"})
+    source = OpenverseImageSource(SETTINGS, transport=transport)
+
+    credit = await source.generate("x", tmp_path / "a.png", query="sunrise beach")
+    assert credit == "Jane / Openverse (BY 2.0)"  # 첫 사진 다운로드 실패 → 다음 사진
+    search = seen[0]
+    assert "Authorization" not in search.headers
+    assert search.url.params["license"] == "cc0,pdm,by"  # 출처 표기만으로 쓸 수 있는 라이선스만
+    assert search.url.params["aspect_ratio"] == "tall"
+
+
+def test_default_sources_work_without_any_photo_keys():
+    from app.main import build_default_providers
+
+    providers = build_default_providers(Settings(gemini_api_key="dummy", _env_file=None))
+    assert providers.images.names == ["Gemini", "Pexels", "Pixabay", "Openverse"]
+
+
+@pytest.mark.asyncio
+async def test_missing_keys_are_skipped_silently_when_a_later_source_works(tmp_path):
+    chain = ImageSourceChain(
+        [
+            ("Gemini", Recorder(error=QUOTA)),
+            ("Pexels", NotConfiguredSource("키 없음 (PEXELS_API_KEY)")),
+            ("Openverse", Recorder(result="Jane / Openverse (BY 2.0)")),
+        ],
+        cooldown_sec=3600,
+    )
+    assert await chain.generate("p", tmp_path / "a.png") == "Jane / Openverse (BY 2.0)"

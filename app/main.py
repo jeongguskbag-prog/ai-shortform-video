@@ -31,7 +31,9 @@ def build_default_providers(settings: Settings) -> Providers:
         GeminiImageGenerator,
         ImageSourceChain,
         NotConfiguredSource,
+        OpenverseImageSource,
         PexelsImageSource,
+        PixabayImageSource,
     )
     from .services.planner import GeminiPlanner
     from .services.tts import EdgeTTS
@@ -46,10 +48,18 @@ def build_default_providers(settings: Settings) -> Providers:
             if settings.pexels_api_key:
                 sources.append(("Pexels", PexelsImageSource(settings.pexels_api_key, settings)))
             else:
-                hint = "PEXELS_API_KEY를 설정하면 무료 사진을 쓸 수 있어요"
-                sources.append(("Pexels", NotConfiguredSource(hint)))
+                sources.append(("Pexels", NotConfiguredSource("키 없음 (PEXELS_API_KEY)")))
+        elif name == "pixabay":
+            if settings.pixabay_api_key:
+                sources.append(("Pixabay", PixabayImageSource(settings.pixabay_api_key, settings)))
+            else:
+                sources.append(("Pixabay", NotConfiguredSource("키 없음 (PIXABAY_API_KEY)")))
+        elif name == "openverse":
+            sources.append(("Openverse", OpenverseImageSource(settings)))
         elif name:
-            logger.warning("알 수 없는 이미지 소스 %r는 건너뜁니다 (gemini, pexels 중 선택)", name)
+            logger.warning(
+                "알 수 없는 이미지 소스 %r는 건너뜁니다 (gemini, pexels, pixabay, openverse 중 선택)", name
+            )
     return Providers(
         planner=GeminiPlanner(client, settings),
         tts=EdgeTTS(settings),
