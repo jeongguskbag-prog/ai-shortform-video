@@ -3,7 +3,7 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import Field
+from pydantic import Field, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     max_retries: int = Field(default=3, ge=1)
     ffmpeg_timeout_sec: float = 300.0
     job_ttl_hours: float = Field(default=24.0, gt=0, description="완료된 작업과 파일을 보관하는 시간")
+
+    @field_validator("gemini_api_key", "pexels_api_key", "pixabay_api_key", "api_keys", mode="before")
+    @classmethod
+    def _drop_comment_values(cls, value, info: ValidationInfo):
+        # "KEY=   # 설명"처럼 값 없이 주석만 있으면 .env 파서가 주석을 값으로 읽으므로 빈 값으로 봅니다.
+        if isinstance(value, str) and value.strip().startswith("#"):
+            return None if info.field_name == "gemini_api_key" else ""
+        return value
 
     @property
     def api_key_list(self) -> tuple[str, ...]:

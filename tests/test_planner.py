@@ -24,3 +24,12 @@ def test_normalize_caps_scene_count():
 def test_normalize_rejects_empty():
     with pytest.raises(PlanningError):
         normalize_plan(ShortsPlan(title="t", scenes=[scene(1, "")]))
+
+
+def test_env_values_that_are_only_comments_count_as_empty(tmp_path):
+    from app.config import Settings
+
+    env = tmp_path / ".env"
+    env.write_text("GEMINI_API_KEY=   # 여기에 키\nPEXELS_API_KEY=     # https://www.pexels.com/api/\nPIXABAY_API_KEY=abc\n")
+    s = Settings(_env_file=env)
+    assert (s.gemini_api_key, s.pexels_api_key, s.pixabay_api_key) == (None, "", "abc")

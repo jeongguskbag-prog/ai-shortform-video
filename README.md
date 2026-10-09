@@ -36,7 +36,21 @@ cp .env.example .env   # GEMINI_API_KEY 입력
 python main.py         # 개발 중 자동 재시작: python main.py --reload
 ```
 
-### Windows
+### Windows 실행 파일 (설치 없이, 가장 쉬움)
+
+Python·FFmpeg 설치 없이 실행 파일로 쓸 수 있습니다.
+
+1. [Releases의 Windows 실행 파일](https://github.com/jeongguskbag-prog/ai-shortform-video/releases/tag/windows-latest)에서
+   `ai-shortform-video-windows.zip`을 받아 압축을 풉니다.
+2. `ai-shortform-video.exe`를 더블클릭합니다. "Windows의 PC 보호" 창이 뜨면 **추가 정보 → 실행**을 누르세요
+   (디지털 서명이 없는 프로그램이라 나오는 경고입니다).
+3. 처음에는 메모장으로 `.env`가 열립니다. Gemini 키를 넣고 저장한 뒤 다시 실행하면 브라우저가 자동으로 열립니다.
+
+실행 파일은 `main`에 병합될 때마다 GitHub Actions(`.github/workflows/windows-exe.yml`)가 Windows에서 테스트를 돌리고,
+exe를 만들어 실제로 켜 본 뒤 올립니다. 자세한 사용법은 zip 안의 `사용법.txt`에 있습니다.
+
+### Windows (직접 설치)
+
 
 PowerShell에서 실행합니다. 한글 자막 폰트는 기본 설치된 맑은 고딕을 자동으로 사용합니다.
 

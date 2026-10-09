@@ -1,0 +1,111 @@
+name: Windows 실행 파일
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write  # main에 병합되면 Releases에 최신 zip을 올리기 위해
+
+concurrency:
+  group: windows-exe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    env:
+      PYTHONUTF8: "1"
+      PYTHONIOENCODING: utf-8
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: 패키지 설치
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements-dev.txt pyinstaller
+
+      - name: FFmpeg 받기
+        shell: pwsh
+        run: |
+          Invoke-WebRequest https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip -OutFile ffmpeg.zip
+          Expand-Archive ffmpeg.zip -DestinationPath ffmpeg-src
+          New-Item -ItemType Directory -Force ffmpeg-bin | Out-Null
+          Get-ChildItem ffmpeg-src -Recurse -Include ffmpeg.exe, ffprobe.exe | Copy-Item -Destination ffmpeg-bin
+          "$PWD\ffmpeg-bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          & ffmpeg-bin\ffmpeg.exe -hide_banner -version | Select-Object -First 1
+
+      - name: 테스트 (Windows)
+        run: python -m pytest -q
+
+      - name: 실행 파일 만들기
+        run: >
+          pyinstaller --noconfirm --name ai-shortform-video --console
+          --collect-submodules uvicorn --collect-data certifi
+          --add-data "app/web;app/web" --add-data ".env.example;."
+          desktop.py
+
+      - name: 배포 폴더 구성
+        shell: pwsh
+        run: |
+          $dir = "dist\ai-shortform-video"
+          Copy-Item ffmpeg-bin\ffmpeg.exe, ffmpeg-bin\ffprobe.exe $dir
+          Copy-Item packaging\windows\README-Windows.txt "$dir\사용법.txt"
+          Copy-Item .env.example "$dir\.env.example"
+
+      - name: 실행 확인 (exe를 켜서 서버 응답 확인)
+        shell: pwsh
+        env:
+          GEMINI_API_KEY: dummy-key-for-smoke-test
+          SHORTS_NO_BROWSER: "1"
+        run: |
+          $dir = Resolve-Path "dist\ai-shortform-video"
+          # 따로 설치한 FFmpeg를 PATH에서 빼서, 함께 묶은 ffmpeg.exe를 쓰는지 확인
+          $env:PATH = "C:\Windows\System32;C:\Windows"
+          $p = Start-Process -FilePath "$dir\ai-shortform-video.exe" -WorkingDirectory $dir -PassThru `
+            -RedirectStandardOutput smoke-out.log -RedirectStandardError smoke-err.log
+          $ok = $false
+          foreach ($i in 1..60) {
+            try {
+              $r = Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing -TimeoutSec 2
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 1 }
+            if ($p.HasExited) { break }
+          }
+          if ($ok) {
+            $page = Invoke-WebRequest http://127.0.0.1:8000/ -UseBasicParsing
+            if ($page.Content -notmatch "/api/v1/shorts") { $ok = $false; Write-Host "웹 화면 응답이 이상합니다" }
+          }
+          if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+          Get-Content smoke-out.log, smoke-err.log -ErrorAction SilentlyContinue | Select-Object -Last 40
+          # 실행 확인 중 생긴 파일은 배포 zip에 넣지 않음
+          Remove-Item "$dir\.env", "$dir\output" -Recurse -Force -ErrorAction SilentlyContinue
+          if (-not $ok) { throw "실행 파일이 서버를 켜지 못했습니다" }
+
+      - name: zip 만들기
+        shell: pwsh
+        run: Compress-Archive -Path dist\ai-shortform-video -DestinationPath ai-shortform-video-windows.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ai-shortform-video-windows
+          path: ai-shortform-video-windows.zip
+          retention-days: 30
+
+      - name: Releases에 최신 버전 올리기 (main만)
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete windows-latest --cleanup-tag --yes 2>$null
+          gh release create windows-latest ai-shortform-video-windows.zip `
+            --target $env:GITHUB_SHA --title "Windows 실행 파일 (최신)" `
+            --notes "압축을 풀고 ai-shortform-video.exe 를 실행하세요. 자세한 방법은 zip 안의 사용법.txt 를 보세요. (커밋 $env:GITHUB_SHA)"

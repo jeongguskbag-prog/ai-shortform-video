@@ -5,3 +5,6 @@ venv/
 .env
 output/
 .pytest_cache/
+build/
+dist/
+*.spec
