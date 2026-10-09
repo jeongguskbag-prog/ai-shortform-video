@@ -72,7 +72,15 @@ def open_browser_when_ready(url: str, timeout: float = 60) -> None:
             time.sleep(0.5)
 
 
+def use_utf8_output() -> None:
+    """출력이 파일·파이프로 넘어가면 Windows는 cp1252 등을 써서 한글 출력에서 멈추므로 UTF-8로 고정."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
+
 def main() -> int:
+    use_utf8_output()
     os.chdir(BASE_DIR)  # .env와 output/ 을 실행 파일 옆에서 읽고 쓰도록
     # 함께 배포한 ffmpeg.exe / ffprobe.exe 를 먼저 찾도록 PATH 앞에 추가
     os.environ["PATH"] = str(BASE_DIR) + os.pathsep + os.environ.get("PATH", "")
