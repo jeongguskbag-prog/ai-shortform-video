@@ -1,6 +1,6 @@
 """씬 이미지 만들기.
 
-Gemini 이미지 모델(또는 Imagen) → Pexels 무료 사진 → 그라디언트 배경 순서로 시도합니다.
+Gemini 이미지 모델(또는 Imagen) → 무료 사진(Pexels·Pixabay·Openverse) → 그라디언트 배경 순서로 시도합니다.
 이미지 소스는 모두 같은 형태(`generate(prompt, output_path, query) -> 출처 표기 | None`)를 따릅니다.
 """
 
@@ -10,6 +10,7 @@ import hashlib
 import logging
 import time
 from collections import deque
+from dataclasses import dataclass
 from pathlib import Path
 
 import httpx
@@ -89,74 +90,175 @@ class GeminiImageGenerator:
         return None  # AI 생성 이미지는 출처 표기가 필요 없음
 
 
-class PexelsError(RuntimeError):
-    def __init__(self, code: int, message: str) -> None:
-        super().__init__(f"Pexels {code}: {message}")
+class StockPhotoError(RuntimeError):
+    def __init__(self, service: str, code: int, message: str) -> None:
+        super().__init__(f"{service} {code}: {message}")
         self.code = code
         self.message = message
 
 
-class PexelsImageSource:
-    """Pexels 무료 사진 검색. 사진마다 촬영자를 출처로 돌려줍니다 (Pexels 이용 조건)."""
+@dataclass(frozen=True)
+class StockPhoto:
+    id: str
+    url: str
+    credit: str
 
-    SEARCH_URL = "https://api.pexels.com/v1/search"
 
-    def __init__(
-        self, api_key: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None
-    ) -> None:
-        self._api_key = api_key
+class StockPhotoSource:
+    """무료 사진 검색 서비스 공통 동작: 검색 → 안 쓴 사진 고르기 → 다운로드 → 출처 반환."""
+
+    name = "Stock"
+    MAX_DOWNLOAD_TRIES = 3  # 원본 서버가 응답하지 않는 사진은 다음 사진으로 넘어감
+
+    def __init__(self, settings: Settings, transport: httpx.AsyncBaseTransport | None = None) -> None:
         self._settings = settings
         self._transport = transport  # 테스트에서 가짜 응답을 넣을 때 사용
         # 같은 영상 안에서 같은 사진이 반복되지 않도록 최근에 쓴 사진을 기억합니다.
-        self._recent: deque[int] = deque(maxlen=200)
+        self._recent: deque[str] = deque(maxlen=200)
+
+    def _headers(self) -> dict[str, str]:
+        return {"User-Agent": "ai-shortform-video/1.0"}
 
     def _client(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(
             transport=self._transport,
             timeout=httpx.Timeout(20.0),
-            headers={"Authorization": self._api_key},
+            headers=self._headers(),
             follow_redirects=True,
         )
 
-    async def _search(self, client: httpx.AsyncClient, query: str) -> list[dict]:
-        response = await client.get(
-            self.SEARCH_URL,
-            params={"query": query, "orientation": "portrait", "per_page": 15},
-        )
+    async def _search(self, client: httpx.AsyncClient, query: str) -> list[StockPhoto]:
+        raise NotImplementedError
+
+    async def _get_json(self, client: httpx.AsyncClient, url: str, params: dict) -> dict:
+        response = await client.get(url, params=params)
         if response.status_code != 200:
-            raise PexelsError(response.status_code, response.text[:200])
-        return response.json().get("photos") or []
+            raise StockPhotoError(self.name, response.status_code, response.text[:200])
+        return response.json()
 
     async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
         words = (query or prompt).split()
         # 검색 결과가 없으면 더 짧은 검색어로 한 번 더 찾습니다.
-        queries = list(dict.fromkeys([" ".join(words[:4]), " ".join(words[:2])]))
+        queries = [q for q in dict.fromkeys([" ".join(words[:4]), " ".join(words[:2])]) if q]
 
         async def call() -> str | None:
             async with self._client() as client:
-                for q in filter(None, queries):
+                for q in queries:
                     photos = await self._search(client, q)
-                    fresh = [p for p in photos if p.get("id") not in self._recent]
-                    photo = (fresh or photos or [None])[0]
-                    if photo is None:
-                        continue
-                    src = photo.get("src") or {}
-                    url = src.get("portrait") or src.get("large2x") or src.get("original")
-                    if not url:
-                        continue
-                    image = await client.get(url)
-                    if image.status_code != 200 or not image.content:
-                        raise PexelsError(image.status_code, "사진 다운로드 실패")
-                    output_path.write_bytes(image.content)
-                    self._recent.append(photo.get("id"))
-                    return f"{photo.get('photographer') or 'Unknown'} / Pexels"
+                    fresh = [ph for ph in photos if ph.id not in self._recent] or photos
+                    for photo in fresh[: self.MAX_DOWNLOAD_TRIES]:
+                        try:
+                            image = await client.get(photo.url)
+                        except httpx.HTTPError:
+                            continue
+                        if image.status_code == 200 and image.content:
+                            output_path.write_bytes(image.content)
+                            self._recent.append(photo.id)
+                            return photo.credit
             return None
 
-        credit = await with_retry(call, attempts=self._settings.max_retries, what="Pexels 사진")
+        credit = await with_retry(call, attempts=self._settings.max_retries, what=f"{self.name} 사진")
         if credit is None:
             # 검색 결과가 없는 건 다시 시도해도 같으므로 재시도 밖에서 알립니다.
-            raise ImageGenerationError(f"'{queries[0]}'에 맞는 사진을 찾지 못함")
+            raise ImageGenerationError(f"'{queries[0] if queries else prompt}'에 맞는 사진을 찾지 못함")
         return credit
+
+
+class PexelsImageSource(StockPhotoSource):
+    """Pexels 무료 사진 (API 키 필요). https://www.pexels.com/api/"""
+
+    name = "Pexels"
+    SEARCH_URL = "https://api.pexels.com/v1/search"
+
+    def __init__(self, api_key: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
+        super().__init__(settings, transport)
+        self._api_key = api_key
+
+    def _headers(self) -> dict[str, str]:
+        return {**super()._headers(), "Authorization": self._api_key}
+
+    async def _search(self, client: httpx.AsyncClient, query: str) -> list[StockPhoto]:
+        data = await self._get_json(
+            client, self.SEARCH_URL, {"query": query, "orientation": "portrait", "per_page": 15}
+        )
+        photos = []
+        for item in data.get("photos") or []:
+            src = item.get("src") or {}
+            url = src.get("portrait") or src.get("large2x") or src.get("original")
+            if url:
+                who = item.get("photographer") or "Unknown"
+                photos.append(StockPhoto(f"pexels:{item.get('id')}", url, f"{who} / Pexels"))
+        return photos
+
+
+class PixabayImageSource(StockPhotoSource):
+    """Pixabay 무료 사진 (가입 후 바로 받는 무료 API 키 필요). https://pixabay.com/api/docs/"""
+
+    name = "Pixabay"
+    SEARCH_URL = "https://pixabay.com/api/"
+
+    def __init__(self, api_key: str, settings: Settings, transport: httpx.AsyncBaseTransport | None = None):
+        super().__init__(settings, transport)
+        self._api_key = api_key
+
+    async def _search(self, client: httpx.AsyncClient, query: str) -> list[StockPhoto]:
+        data = await self._get_json(
+            client,
+            self.SEARCH_URL,
+            {
+                "key": self._api_key,
+                "q": query[:100],
+                "image_type": "photo",
+                "orientation": "vertical",
+                "safesearch": "true",
+                "per_page": 20,
+            },
+        )
+        photos = []
+        for item in data.get("hits") or []:
+            url = item.get("largeImageURL") or item.get("webformatURL")
+            if url:
+                who = item.get("user") or "Unknown"
+                photos.append(StockPhoto(f"pixabay:{item.get('id')}", url, f"{who} / Pixabay"))
+        return photos
+
+
+class OpenverseImageSource(StockPhotoSource):
+    """Openverse 공개 라이선스 이미지 (키 불필요). https://api.openverse.org/
+
+    영상에 출처만 밝히면 쓸 수 있는 라이선스(CC0, 퍼블릭 도메인, CC BY)만 검색합니다.
+    키 없이 쓰는 대신 요청 횟수 제한이 있습니다.
+    """
+
+    name = "Openverse"
+    SEARCH_URL = "https://api.openverse.org/v1/images/"
+    LICENSES = "cc0,pdm,by"
+
+    async def _search(self, client: httpx.AsyncClient, query: str) -> list[StockPhoto]:
+        data = await self._get_json(
+            client,
+            self.SEARCH_URL,
+            {
+                "q": query,
+                "license": self.LICENSES,
+                "aspect_ratio": "tall",
+                "mature": "false",
+                "page_size": 20,
+            },
+        )
+        photos = []
+        for item in data.get("results") or []:
+            url = item.get("url")
+            if not url:
+                continue
+            license_name = f"{item.get('license', '')} {item.get('license_version') or ''}".strip().upper()
+            who = item.get("creator") or "Unknown"
+            credit = f"{who} / Openverse ({license_name})" if license_name else f"{who} / Openverse"
+            photos.append(StockPhoto(f"openverse:{item.get('id')}", url, credit))
+        return photos
+
+
+PexelsError = StockPhotoError  # 이전 이름 호환
 
 
 class NotConfiguredSource:
