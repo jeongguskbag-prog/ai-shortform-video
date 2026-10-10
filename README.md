@@ -51,6 +51,13 @@ exe를 만들어 실제로 켜 본 뒤 올립니다. 자세한 사용법은 zip 
 
 ### Windows (직접 설치)
 
+**배치 파일로 한 번에:** [`windows/install-and-run.bat`](windows/install-and-run.bat)을 받아 더블클릭하면
+Python·Git·FFmpeg 설치(winget), `D:\ai-shortform-video`(D 드라이브가 없으면 `문서` 폴더)로 코드 받기, 패키지 설치,
+키 입력 안내, 실행까지 자동으로 합니다. 다시 실행하면 최신 버전으로 업데이트한 뒤 실행합니다.
+설치 위치는 환경변수 `AI_SHORTS_DIR`로 바꿀 수 있습니다.
+
+**직접 명령어로:**
+
 
 PowerShell에서 실행합니다. 한글 자막 폰트는 기본 설치된 맑은 고딕을 자동으로 사용합니다.
 

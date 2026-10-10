@@ -89,6 +89,28 @@ jobs:
           Remove-Item "$dir\.env", "$dir\output" -Recurse -Force -ErrorAction SilentlyContinue
           if (-not $ok) { throw "실행 파일이 서버를 켜지 못했습니다" }
 
+      - name: 배치 파일 실행 확인 (설치 → 서버 응답)
+        shell: pwsh
+        env:
+          GEMINI_API_KEY: dummy-key-for-smoke-test
+          SHORTS_NO_BROWSER: "1"
+          AI_SHORTS_BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          $env:AI_SHORTS_DIR = Join-Path $env:RUNNER_TEMP "shorts-bat"
+          $p = Start-Process -FilePath cmd.exe -ArgumentList '/c', 'windows\install-and-run.bat' -PassThru `
+            -RedirectStandardOutput bat-out.log -RedirectStandardError bat-err.log
+          $ok = $false
+          foreach ($i in 1..150) {
+            try {
+              $r = Invoke-WebRequest http://127.0.0.1:8000/health -UseBasicParsing -TimeoutSec 2
+              if ($r.StatusCode -eq 200) { $ok = $true; break }
+            } catch { Start-Sleep -Seconds 2 }
+            if ($p.HasExited) { break }
+          }
+          if (-not $p.HasExited) { taskkill /T /F /PID $p.Id | Out-Null }
+          Get-Content bat-out.log, bat-err.log -ErrorAction SilentlyContinue | Select-Object -Last 40
+          if (-not $ok) { throw "배치 파일로 서버를 켜지 못했습니다" }
+
       - name: zip 만들기
         shell: pwsh
         run: Compress-Archive -Path dist\ai-shortform-video -DestinationPath ai-shortform-video-windows.zip
