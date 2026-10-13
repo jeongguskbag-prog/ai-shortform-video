@@ -38,8 +38,12 @@ class Settings(BaseSettings):
     image_sources: str = "gemini,pexels,pixabay,openverse"
     # 한도 초과·키 오류처럼 다시 해도 안 되는 오류가 난 이미지 소스는 이 시간(초) 동안 건너뜁니다.
     image_source_cooldown_sec: int = Field(default=3600, ge=0)
-    tts_voice: str = "ko-KR-SunHiNeural"
-    tts_rate: str = "+15%"
+    # 나레이션 음성을 시도할 순서. Edge가 막히면(403) Gemini 음성, 그다음 Google 번역 음성(gTTS)을 씁니다.
+    tts_sources: str = "edge,gemini,gtts"
+    tts_voice: str = "ko-KR-SunHiNeural"  # Edge 음성
+    tts_rate: str = "+15%"  # Edge 속도 (Google 번역 음성에도 같은 속도를 적용)
+    gemini_tts_model: str = "gemini-3.8-flash-tts"
+    gemini_tts_voice: str = "Kore"
 
     # --- 출력 영상 ---
     output_dir: Path = Path("output")

@@ -56,14 +56,14 @@ class ShortsPipeline:
                 job_dir.mkdir(parents=True, exist_ok=True)
                 await self._run(job, job_dir)
         except asyncio.CancelledError:
-            job.update(status=JobStatus.FAILED, error="서버 종료로 작업이 취소되었습니다.")
+            job.update(failed_stage=job.status, status=JobStatus.FAILED, error="서버 종료로 작업이 취소되었습니다.")
             raise
         except Exception as exc:
             logger.exception("작업 %s 실패", job.job_id)
             root: BaseException = exc
             while isinstance(root, BaseExceptionGroup) and root.exceptions:
                 root = root.exceptions[0]  # TaskGroup이 감싼 실제 원인을 보여줌
-            job.update(status=JobStatus.FAILED, error=describe_error(root))
+            job.update(failed_stage=job.status, status=JobStatus.FAILED, error=describe_error(root))
 
     async def _run(self, job: Job, job_dir: Path) -> None:
         job.update(status=JobStatus.PLANNING, progress=PLAN_START)

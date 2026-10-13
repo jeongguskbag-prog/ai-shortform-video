@@ -8,7 +8,6 @@ import asyncio
 import colorsys
 import hashlib
 import logging
-import time
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -19,7 +18,8 @@ from google.genai import types
 from PIL import Image, ImageDraw
 
 from ..config import Settings
-from ..errors import is_retryable, short_reason
+from ..errors import UserFacingError
+from ..fallback import FallbackChain
 from ..retry import with_retry
 
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ STYLE_SUFFIX = (
 )
 
 
-class ImageGenerationError(RuntimeError):
+class ImageGenerationError(UserFacingError):
     pass
 
 
@@ -271,42 +271,14 @@ class NotConfiguredSource:
         raise ImageGenerationError(self._hint)
 
 
-class ImageSourceChain:
-    """이미지 소스를 순서대로 시도합니다.
-
-    한도 0·키 오류처럼 다시 해도 안 되는 오류가 난 소스는 cooldown 동안 건너뛰어,
-    결제를 켜지 않은 Gemini에 씬마다 헛된 요청을 보내지 않습니다.
-    """
+class ImageSourceChain(FallbackChain):
+    """이미지 소스를 순서대로 시도합니다 (Gemini → 무료 사진 → …)."""
 
     def __init__(self, sources: list[tuple[str, object]], cooldown_sec: float) -> None:
-        self._sources = sources
-        self._cooldown = cooldown_sec
-        self._disabled_until: dict[str, tuple[float, str]] = {}
-
-    @property
-    def names(self) -> list[str]:
-        return [name for name, _ in self._sources]
+        super().__init__(sources, cooldown_sec, what="이미지", error_cls=ImageGenerationError)
 
     async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
-        reasons: list[str] = []
-        for name, source in self._sources:
-            skipped = self._disabled_until.get(name)
-            if skipped and skipped[0] > time.monotonic():
-                reasons.append(f"{name}: {skipped[1]}")
-                continue
-            try:
-                return await source.generate(prompt, output_path, query)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                reason = short_reason(exc)
-                logger.warning("이미지 소스 %s 실패: %s", name, exc)
-                reasons.append(f"{name}: {reason}")
-                if not is_retryable(exc) and self._cooldown > 0:
-                    self._disabled_until[name] = (time.monotonic() + self._cooldown, reason)
-        if not self._sources:
-            reasons.append("사용할 이미지 소스가 없습니다")
-        raise ImageGenerationError(" / ".join(reasons))
+        return await self.run(lambda source: source.generate(prompt, output_path, query))
 
 
 def _make_placeholder(seed_text: str, size: tuple[int, int], output_path: Path) -> None:

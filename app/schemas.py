@@ -58,6 +58,7 @@ class CreateJobResponse(BaseModel):
 class JobStatusResponse(BaseModel):
     job_id: str
     status: JobStatus
+    failed_stage: JobStatus | None = Field(default=None, description="실패했을 때 진행 중이던 단계")
     progress: int = Field(ge=0, le=100)
     title: str | None = None
     scene_count: int | None = None

@@ -18,6 +18,9 @@ class FakeAPIError(Exception):
         self.message = message
 
 
+FakeAPIError.__module__ = "google.genai.errors"  # Gemini SDK 오류처럼 취급
+
+
 QUOTA = FakeAPIError(429, "You exceeded your current quota, please check your plan and billing details.")
 
 
@@ -42,6 +45,15 @@ def test_describe_error_is_friendly_and_short():
     assert "[HTTP 429]" in msg
     assert len(msg) < 300
     assert describe_error(ValueError("boom")) == "ValueError: boom"
+
+
+def test_non_gemini_http_errors_are_not_blamed_on_the_gemini_key():
+    class WSServerHandshakeError(Exception):  # aiohttp(Edge TTS)가 내는 오류 모양
+        code = 403
+
+    msg = describe_error(WSServerHandshakeError("Invalid response status"))
+    assert "Gemini" not in msg
+    assert msg.startswith("접근 거부")
 
 
 class _FakeModels:

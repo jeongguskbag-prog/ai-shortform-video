@@ -363,22 +363,18 @@
   let watching = null;   // 현재 보고 있는 job_id
   let timer = null;
 
-  function renderSteps(status) {
-    const idx = STEPS.findIndex(([s]) => s === status);
+  function renderSteps(status, failedStage) {
+    // 실패했으면 실패 직전 단계를 기준으로 표시 (앞 단계는 완료, 그 단계는 실패)
+    const current = status === "FAILED" ? (failedStage || "QUEUED") : status;
+    const idx = STEPS.findIndex(([s]) => s === current);
     els.steps.replaceChildren(...STEPS.map(([s, label], i) => {
       const li = document.createElement("li");
       const dot = document.createElement("span"); dot.className = "dot";
       li.append(dot, document.createTextNode(label));
       if (status === "COMPLETED" || i < idx) li.className = "done";
-      else if (i === idx) li.className = "active";
+      else if (i === idx) li.className = status === "FAILED" ? "failed" : "active";
       return li;
     }));
-    if (status === "FAILED") {
-      // 마지막으로 진행 중이던 단계를 실패로 표시
-      const items = [...els.steps.children];
-      const last = items.findIndex((li) => !li.classList.contains("done"));
-      if (last >= 0) items[last].className = "failed";
-    }
   }
 
   function renderJob(job) {
@@ -391,7 +387,7 @@
     els.stageText.textContent = job.status === "GENERATING_ASSETS" && job.scene_count
       ? `${STATUS_LABEL[job.status]} (${job.scene_count}개 씬)`
       : STATUS_LABEL[job.status] || job.status;
-    renderSteps(job.status);
+    renderSteps(job.status, job.failed_stage);
 
     showError(els.jobError, job.status === "FAILED" ? `영상 생성에 실패했어요.\n${job.error || ""}` : "");
     if (job.warnings?.length) {

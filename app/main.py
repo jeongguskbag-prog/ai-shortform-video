@@ -36,7 +36,7 @@ def build_default_providers(settings: Settings) -> Providers:
         PixabayImageSource,
     )
     from .services.planner import GeminiPlanner
-    from .services.tts import EdgeTTS
+    from .services.tts import build_tts_chain
 
     # api_key가 None이면 SDK가 GEMINI_API_KEY / GOOGLE_API_KEY 환경변수를 사용합니다.
     client = genai.Client(api_key=settings.gemini_api_key)
@@ -62,7 +62,7 @@ def build_default_providers(settings: Settings) -> Providers:
             )
     return Providers(
         planner=GeminiPlanner(client, settings),
-        tts=EdgeTTS(settings),
+        tts=build_tts_chain(settings, client),
         images=ImageSourceChain(sources, settings.image_source_cooldown_sec),
     )
 
