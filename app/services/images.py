@@ -1,15 +1,16 @@
 """씬 이미지 만들기.
 
 Gemini 이미지 모델(또는 Imagen) → 무료 사진(Pexels·Pixabay·Openverse) → 그라디언트 배경 순서로 시도합니다.
-이미지 소스는 모두 같은 형태(`generate(prompt, output_path, query) -> 출처 표기 | None`)를 따릅니다.
+이미지 소스는 모두 같은 형태(`generate(prompt, output_path, query, exclude=...) -> 출처 표기 | None`)를 따릅니다.
 """
 
 import asyncio
 import colorsys
 import hashlib
 import logging
-import time
+import re
 from collections import deque
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -19,7 +20,8 @@ from google.genai import types
 from PIL import Image, ImageDraw
 
 from ..config import Settings
-from ..errors import is_retryable, short_reason
+from ..errors import UserFacingError
+from ..fallback import FallbackChain
 from ..retry import with_retry
 
 logger = logging.getLogger(__name__)
@@ -30,7 +32,7 @@ STYLE_SUFFIX = (
 )
 
 
-class ImageGenerationError(RuntimeError):
+class ImageGenerationError(UserFacingError):
     pass
 
 
@@ -73,7 +75,9 @@ class GeminiImageGenerator:
         images = result.generated_images or []
         return images[0].image.image_bytes if images and images[0].image else None
 
-    async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
+    async def generate(
+        self, prompt: str, output_path: Path, query: str = "", exclude: Sequence[str] = ()
+    ) -> str | None:
         full_prompt = f"{prompt}, {STYLE_SUFFIX}"
 
         async def call() -> None:
@@ -102,6 +106,17 @@ class StockPhoto:
     id: str
     url: str
     credit: str
+    text: str = ""  # 제목·태그·설명. 엉뚱한 사진(예: 3쿠션인데 포켓볼)을 걸러 낼 때 씁니다.
+
+
+def mentions_any(text: str, terms: Sequence[str]) -> bool:
+    """text에 terms 중 하나라도 단어 단위로 들어 있는지 (대소문자·하이픈 무시)."""
+    words = " ".join(re.findall(r"[a-z0-9]+", text.lower()))
+    for term in terms:
+        term_words = " ".join(re.findall(r"[a-z0-9]+", term.lower()))
+        if term_words and re.search(rf"\b{re.escape(term_words)}s?\b", words):
+            return True
+    return False
 
 
 class StockPhotoSource:
@@ -136,7 +151,9 @@ class StockPhotoSource:
             raise StockPhotoError(self.name, response.status_code, response.text[:200])
         return response.json()
 
-    async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
+    async def generate(
+        self, prompt: str, output_path: Path, query: str = "", exclude: Sequence[str] = ()
+    ) -> str | None:
         words = (query or prompt).split()
         # 검색 결과가 없으면 더 짧은 검색어로 한 번 더 찾습니다.
         queries = [q for q in dict.fromkeys([" ".join(words[:4]), " ".join(words[:2])]) if q]
@@ -145,6 +162,8 @@ class StockPhotoSource:
             async with self._client() as client:
                 for q in queries:
                     photos = await self._search(client, q)
+                    # 검색어는 맞아도 다른 종류인 사진(예: 3쿠션 검색에 나온 포켓볼)은 버립니다.
+                    photos = [ph for ph in photos if not mentions_any(ph.text, exclude)]
                     fresh = [ph for ph in photos if ph.id not in self._recent] or photos
                     for photo in fresh[: self.MAX_DOWNLOAD_TRIES]:
                         try:
@@ -187,7 +206,8 @@ class PexelsImageSource(StockPhotoSource):
             url = src.get("portrait") or src.get("large2x") or src.get("original")
             if url:
                 who = item.get("photographer") or "Unknown"
-                photos.append(StockPhoto(f"pexels:{item.get('id')}", url, f"{who} / Pexels"))
+                text = f"{item.get('alt') or ''} {item.get('url') or ''}"
+                photos.append(StockPhoto(f"pexels:{item.get('id')}", url, f"{who} / Pexels", text))
         return photos
 
 
@@ -219,7 +239,8 @@ class PixabayImageSource(StockPhotoSource):
             url = item.get("largeImageURL") or item.get("webformatURL")
             if url:
                 who = item.get("user") or "Unknown"
-                photos.append(StockPhoto(f"pixabay:{item.get('id')}", url, f"{who} / Pixabay"))
+                text = f"{item.get('tags') or ''} {item.get('pageURL') or ''}"
+                photos.append(StockPhoto(f"pixabay:{item.get('id')}", url, f"{who} / Pixabay", text))
         return photos
 
 
@@ -254,7 +275,9 @@ class OpenverseImageSource(StockPhotoSource):
             license_name = f"{item.get('license', '')} {item.get('license_version') or ''}".strip().upper()
             who = item.get("creator") or "Unknown"
             credit = f"{who} / Openverse ({license_name})" if license_name else f"{who} / Openverse"
-            photos.append(StockPhoto(f"openverse:{item.get('id')}", url, credit))
+            tags = " ".join(t.get("name", "") for t in item.get("tags") or [] if isinstance(t, dict))
+            text = f"{item.get('title') or ''} {tags}"
+            photos.append(StockPhoto(f"openverse:{item.get('id')}", url, credit, text))
         return photos
 
 
@@ -267,46 +290,22 @@ class NotConfiguredSource:
     def __init__(self, hint: str) -> None:
         self._hint = hint
 
-    async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
+    async def generate(
+        self, prompt: str, output_path: Path, query: str = "", exclude: Sequence[str] = ()
+    ) -> str | None:
         raise ImageGenerationError(self._hint)
 
 
-class ImageSourceChain:
-    """이미지 소스를 순서대로 시도합니다.
-
-    한도 0·키 오류처럼 다시 해도 안 되는 오류가 난 소스는 cooldown 동안 건너뛰어,
-    결제를 켜지 않은 Gemini에 씬마다 헛된 요청을 보내지 않습니다.
-    """
+class ImageSourceChain(FallbackChain):
+    """이미지 소스를 순서대로 시도합니다 (Gemini → 무료 사진 → …)."""
 
     def __init__(self, sources: list[tuple[str, object]], cooldown_sec: float) -> None:
-        self._sources = sources
-        self._cooldown = cooldown_sec
-        self._disabled_until: dict[str, tuple[float, str]] = {}
+        super().__init__(sources, cooldown_sec, what="이미지", error_cls=ImageGenerationError)
 
-    @property
-    def names(self) -> list[str]:
-        return [name for name, _ in self._sources]
-
-    async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
-        reasons: list[str] = []
-        for name, source in self._sources:
-            skipped = self._disabled_until.get(name)
-            if skipped and skipped[0] > time.monotonic():
-                reasons.append(f"{name}: {skipped[1]}")
-                continue
-            try:
-                return await source.generate(prompt, output_path, query)
-            except asyncio.CancelledError:
-                raise
-            except Exception as exc:
-                reason = short_reason(exc)
-                logger.warning("이미지 소스 %s 실패: %s", name, exc)
-                reasons.append(f"{name}: {reason}")
-                if not is_retryable(exc) and self._cooldown > 0:
-                    self._disabled_until[name] = (time.monotonic() + self._cooldown, reason)
-        if not self._sources:
-            reasons.append("사용할 이미지 소스가 없습니다")
-        raise ImageGenerationError(" / ".join(reasons))
+    async def generate(
+        self, prompt: str, output_path: Path, query: str = "", exclude: Sequence[str] = ()
+    ) -> str | None:
+        return await self.run(lambda source: source.generate(prompt, output_path, query, exclude=exclude))
 
 
 def _make_placeholder(seed_text: str, size: tuple[int, int], output_path: Path) -> None:

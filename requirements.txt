@@ -3,5 +3,6 @@ uvicorn[standard]>=0.30.0
 pydantic>=2.7.0
 pydantic-settings>=2.3.0
 edge-tts>=6.1.12
+gTTS>=2.5
 google-genai>=1.20.0
 pillow>=10.4.0

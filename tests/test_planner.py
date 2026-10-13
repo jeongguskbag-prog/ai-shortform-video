@@ -33,3 +33,22 @@ def test_env_values_that_are_only_comments_count_as_empty(tmp_path):
     env.write_text("GEMINI_API_KEY=   # 여기에 키\nPEXELS_API_KEY=     # https://www.pexels.com/api/\nPIXABAY_API_KEY=abc\n")
     s = Settings(_env_file=env)
     assert (s.gemini_api_key, s.pexels_api_key, s.pixabay_api_key) == (None, "", "abc")
+
+
+def test_normalize_cleans_stock_excludes():
+    s = ScenePlan(
+        scene_id=1, narration="말", visual_prompt="v", subtitle_text="s",
+        stock_query="carom billiards table",
+        stock_exclude=[" Pool ", "pool", "snooker", "billiards hall", ""],
+    )
+    plan = normalize_plan(ShortsPlan(title="t", scenes=[s]))
+    # 중복·빈 값 제거, 검색어와 겹치는 단어("billiards")가 든 제외어는 빼서 모든 사진이 걸러지지 않게 함
+    assert plan.scenes[0].stock_exclude == ["pool", "snooker"]
+
+
+def test_plan_schema_converts_to_gemini_schema():
+    from google.genai import Client, _transformers
+
+    schema = _transformers.t_schema(Client(api_key="x")._api_client, ShortsPlan)
+    scene_props = schema.properties["scenes"].items.properties
+    assert scene_props["stock_exclude"].items.type == "STRING"

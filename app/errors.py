@@ -31,13 +31,21 @@ def is_retryable(exc: BaseException) -> bool:
 
 _SHORT_HINTS = {
     400: "요청 거부",
-    401: "API 키가 올바르지 않음",
-    403: "API 키 권한 없음",
+    401: "인증 실패 (키 확인)",
+    403: "접근 거부 (키 권한 문제이거나 서비스가 요청을 막음)",
     404: "모델·주소를 찾을 수 없음",
     429: "사용량 한도 초과 (무료 등급이거나 결제 필요)",
     500: "서버 오류",
     503: "사용량이 많아 일시적으로 응답 없음",
 }
+
+
+class UserFacingError(RuntimeError):
+    """메시지를 그대로 사용자에게 보여줘도 되는 오류 (이미 한국어로 정리된 설명)."""
+
+
+def _is_gemini_error(exc: BaseException) -> bool:
+    return type(exc).__module__.startswith("google.genai")
 
 
 def short_reason(exc: BaseException) -> str:
@@ -49,7 +57,12 @@ def short_reason(exc: BaseException) -> str:
 
 
 def describe_error(exc: BaseException, limit: int = 200) -> str:
+    if isinstance(exc, UserFacingError):
+        return str(exc)
     code = api_error_code(exc)
+    if code is not None and not _is_gemini_error(exc):
+        # Edge TTS·사진 서비스 등 Gemini가 아닌 곳의 HTTP 오류를 Gemini 키 문제로 안내하지 않음
+        return f"{short_reason(exc)} [HTTP {code}] {type(exc).__name__}"
     if code is not None:
         detail = (getattr(exc, "message", None) or str(exc)).strip()
         if len(detail) > limit:

@@ -1,6 +1,6 @@
 # ai-shortform-video
 
-대본 한 편을 입력하면 **Gemini**가 씬을 기획하고, **Edge TTS**로 나레이션을, **Gemini 이미지 모델**로 씬 이미지를 만든 뒤
+대본 한 편을 입력하면 **Gemini**가 씬을 기획하고, **Edge TTS**(막히면 Gemini 음성·Google 번역 음성)로 나레이션을, **Gemini 이미지 모델**로 씬 이미지를 만든 뒤
 **FFmpeg**로 자막·켄 번스 효과가 들어간 9:16 쇼츠 영상을 합성하는 FastAPI 서버입니다.
 
 ## 파이프라인
@@ -8,7 +8,7 @@
 ```
 대본 ─▶ Gemini 씬 기획 (JSON 스키마 강제, 씬 정규화, 과부하 시 예비 모델로 전환)
         └▶ 씬별 병렬 처리 (동시 실행 수 제한)
-             ├ Edge TTS 나레이션        (재시도)
+             ├ 나레이션: Edge TTS → Gemini 음성 → Google 번역 음성(gTTS) 순서로 시도
              ├ 이미지: Gemini AI → 무료 사진(Pexels·Pixabay·Openverse) → 그라디언트 배경 순서로 시도
              ├ Pillow 자막 PNG          (한글 폰트, 자동 줄바꿈, 외곽선, 반투명 박스)
              └ FFmpeg 씬 렌더링          (켄 번스 줌 인/아웃 교차, 음성 길이에 맞춤)

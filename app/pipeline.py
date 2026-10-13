@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Protocol
@@ -28,7 +29,9 @@ class TTSEngine(Protocol):
 
 
 class ImageGenerator(Protocol):
-    async def generate(self, prompt: str, output_path: Path, query: str = "") -> str | None:
+    async def generate(
+        self, prompt: str, output_path: Path, query: str = "", exclude: Sequence[str] = ()
+    ) -> str | None:
         """이미지를 output_path에 저장하고, 출처 표기가 필요하면 그 문구를 돌려줍니다."""
         ...
 
@@ -56,14 +59,14 @@ class ShortsPipeline:
                 job_dir.mkdir(parents=True, exist_ok=True)
                 await self._run(job, job_dir)
         except asyncio.CancelledError:
-            job.update(status=JobStatus.FAILED, error="서버 종료로 작업이 취소되었습니다.")
+            job.update(failed_stage=job.status, status=JobStatus.FAILED, error="서버 종료로 작업이 취소되었습니다.")
             raise
         except Exception as exc:
             logger.exception("작업 %s 실패", job.job_id)
             root: BaseException = exc
             while isinstance(root, BaseExceptionGroup) and root.exceptions:
                 root = root.exceptions[0]  # TaskGroup이 감싼 실제 원인을 보여줌
-            job.update(status=JobStatus.FAILED, error=describe_error(root))
+            job.update(failed_stage=job.status, status=JobStatus.FAILED, error=describe_error(root))
 
     async def _run(self, job: Job, job_dir: Path) -> None:
         job.update(status=JobStatus.PLANNING, progress=PLAN_START)
@@ -126,7 +129,7 @@ class ShortsPipeline:
             else:
                 try:
                     credit = await self._providers.images.generate(
-                        scene.visual_prompt, image_path, scene.stock_query
+                        scene.visual_prompt, image_path, scene.stock_query, exclude=scene.stock_exclude
                     )
                     if credit and credit not in job.image_credits:
                         job.image_credits.append(credit)

@@ -22,6 +22,7 @@ class Job:
     script: str
     tone: str
     status: JobStatus = JobStatus.QUEUED
+    failed_stage: JobStatus | None = None  # 실패했을 때 진행 중이던 단계
     progress: int = 0
     title: str | None = None
     scene_count: int | None = None
@@ -50,6 +51,7 @@ class Job:
         return JobStatusResponse(
             job_id=self.job_id,
             status=self.status,
+            failed_stage=self.failed_stage,
             progress=self.progress,
             title=self.title,
             scene_count=self.scene_count,
