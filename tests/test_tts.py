@@ -131,3 +131,9 @@ async def test_failed_job_remembers_stage_and_blames_the_right_service(settings,
     assert job.failed_stage == "GENERATING_ASSETS"  # 기획은 성공, 나레이션 단계에서 실패
     assert job.error.startswith("나레이션 음성을 만들지 못했어요 — Edge: 접근 거부")
     assert "Gemini API 키" not in job.error
+
+
+
+def test_gtts_lang_follows_voice():
+    from app.services.tts import gtts_lang
+    assert gtts_lang("en-US-AvaNeural") == "en" and gtts_lang("ko-KR-SunHiNeural") == "ko" and gtts_lang("") == "ko"

@@ -113,6 +113,12 @@ class GeminiTTS:
         _ensure_written(output_path)
 
 
+def gtts_lang(voice: str) -> str:
+    """Edge 음성 이름(예: en-US-AvaNeural)에서 gTTS 언어 코드(en) — 영어 대본을 한국어 발음으로 읽지 않게"""
+    code = (voice or "ko").split("-")[0].lower()
+    return code if code.isalpha() and len(code) in (2, 3) else "ko"
+
+
 class GoogleTranslateTTS:
     """Google 번역 음성 (gTTS, 무료, 키 불필요). 기계음에 가깝지만 가장 잘 막히지 않습니다."""
 
@@ -127,7 +133,7 @@ class GoogleTranslateTTS:
         raw_path = output_path.with_suffix(".gtts.mp3")
 
         async def call() -> None:
-            await asyncio.to_thread(gTTS(text=text, lang="ko").save, str(raw_path))
+            await asyncio.to_thread(gTTS(text=text, lang=gtts_lang(self._settings.tts_voice)).save, str(raw_path))
             _ensure_written(raw_path)
 
         await with_retry(call, attempts=self._settings.max_retries, what="Google 번역 음성")
