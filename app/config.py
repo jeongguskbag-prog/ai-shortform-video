@@ -54,6 +54,7 @@ class Settings(BaseSettings):
     max_zoom: float = Field(default=1.15, ge=1.0, le=2.0, description="켄 번스 효과 최대 줌 배율")
     font_path: Path | None = Field(default=None, description="자막 폰트 경로. 비우면 한글 폰트를 자동 탐색")
     subtitle_font_size: int = 54
+    burn_subtitles: bool = Field(default=False, description="화면 자막을 영상에 입힐지 여부 (기본: 끔, 음성만 사용)")
 
     # --- 동시성 / 안정성 ---
     max_concurrent_jobs: int = Field(default=2, ge=1)

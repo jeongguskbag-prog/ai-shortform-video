@@ -243,27 +243,36 @@ async def render_scene(
     *,
     image_path: Path,
     audio_path: Path,
-    subtitle_png: Path,
+    subtitle_png: Path | None,
     output_path: Path,
     spec: VideoSpec,
     zoom_in: bool = True,
 ) -> float:
-    """이미지 + 음성 + 자막으로 씬 영상을 만들고, 씬 길이(초)를 반환합니다."""
+    """이미지 + 음성(+ 자막이 있으면 자막)으로 씬 영상을 만들고, 씬 길이(초)를 반환합니다."""
     audio_duration = await probe_duration(audio_path)
     frames = math.ceil((audio_duration + spec.padding_sec) * spec.fps)
     duration = frames / spec.fps
 
-    filter_complex = (
-        f"[0:v]{_ken_burns_filter(spec, frames, zoom_in)}[bg];"
-        f"[bg][1:v]overlay=0:0:format=auto,format=yuv420p[v];"
-        f"[2:a]aresample=44100,apad[a]"
-    )
+    ken = _ken_burns_filter(spec, frames, zoom_in)
+    inputs = ["-i", str(image_path)]
+    if subtitle_png is not None:
+        inputs += ["-i", str(subtitle_png)]
+        filter_complex = (
+            f"[0:v]{ken}[bg];"
+            f"[bg][1:v]overlay=0:0:format=auto,format=yuv420p[v];"
+            f"[2:a]aresample=44100,apad[a]"
+        )
+    else:
+        filter_complex = (
+            f"[0:v]{ken}[bg];"
+            f"[bg]format=yuv420p[v];"
+            f"[1:a]aresample=44100,apad[a]"
+        )
+    inputs += ["-i", str(audio_path)]
     await run_command(
         [
             "ffmpeg", "-y", "-hide_banner", "-loglevel", "error",
-            "-i", str(image_path),
-            "-i", str(subtitle_png),
-            "-i", str(audio_path),
+            *inputs,
             "-filter_complex", filter_complex,
             "-map", "[v]", "-map", "[a]",
             "-t", f"{duration:.3f}",

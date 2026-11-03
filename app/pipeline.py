@@ -143,15 +143,18 @@ class ShortsPipeline:
             await make_placeholder(scene.visual_prompt, self._spec.size, image_path)
 
         # 음성은 필수, 이미지는 실패해도 대체 배경으로 진행
-        await asyncio.gather(
+        burn = self._settings.burn_subtitles
+        jobs = [
             self._providers.tts.synthesize(scene.narration, audio_path),
             image_with_fallback(),
-            video.render_subtitle_png(scene.subtitle_text, self._spec, subtitle_path),
-        )
+        ]
+        if burn:
+            jobs.append(video.render_subtitle_png(scene.subtitle_text, self._spec, subtitle_path))
+        await asyncio.gather(*jobs)
         await video.render_scene(
             image_path=image_path,
             audio_path=audio_path,
-            subtitle_png=subtitle_path,
+            subtitle_png=subtitle_path if burn else None,
             output_path=scene_path,
             spec=self._spec,
             zoom_in=index % 2 == 0,  # 씬마다 줌 인/아웃을 번갈아 단조로움을 줄임
