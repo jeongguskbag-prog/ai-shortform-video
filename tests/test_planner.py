@@ -26,9 +26,12 @@ def test_normalize_rejects_empty():
         normalize_plan(ShortsPlan(title="t", scenes=[scene(1, "")]))
 
 
-def test_env_values_that_are_only_comments_count_as_empty(tmp_path):
+def test_env_values_that_are_only_comments_count_as_empty(tmp_path, monkeypatch):
     from app.config import Settings
 
+    # 실행 환경에 실제 키가 있으면 .env보다 우선하므로 지운다
+    for name in ("GEMINI_API_KEY", "PEXELS_API_KEY", "PIXABAY_API_KEY"):
+        monkeypatch.delenv(name, raising=False)
     env = tmp_path / ".env"
     env.write_text("GEMINI_API_KEY=   # 여기에 키\nPEXELS_API_KEY=     # https://www.pexels.com/api/\nPIXABAY_API_KEY=abc\n")
     s = Settings(_env_file=env)
