@@ -459,10 +459,13 @@
     if (job.scene_count) parts.push(`${job.scene_count}개 씬`);
     if (job.duration_sec) parts.push(`${job.duration_sec.toFixed(1)}초`);
     els.vSub.textContent = parts.join(" · ");
-    // Pexels 이용 조건에 따라 사진 촬영자를 표시합니다.
-    const credits = job.image_credits || [];
-    els.vCredit.textContent = credits.length ? `사진: ${credits.join(", ")}` : "";
-    els.vCredit.hidden = !credits.length;
+    // Pexels·Openverse 이용 조건에 따라 사진 촬영자와 음악 저작자를 표시합니다.
+    const credits = job.image_credits || [], music = job.audio_credits || [];
+    const creditParts = [];
+    if (credits.length) creditParts.push(`사진: ${credits.join(", ")}`);
+    if (music.length) creditParts.push(`음악: ${music.join(", ")}`);
+    els.vCredit.textContent = creditParts.join(" · ");
+    els.vCredit.hidden = !creditParts.length;
     els.download.href = job.video_url;
     els.download.setAttribute("download", `${(job.title || job.job_id).replace(/[\\/:*?"<>|]/g, "_")}.mp4`);
     els.meta.hidden = false;

@@ -11,7 +11,7 @@ from .config import Settings
 from .errors import describe_error, is_retryable, short_reason
 from .jobs import Job
 from .schemas import JobStatus, ScenePlan, ShortsPlan
-from .services import video
+from .services import audio, video
 from .services.images import make_placeholder
 
 logger = logging.getLogger(__name__)
@@ -36,11 +36,18 @@ class ImageGenerator(Protocol):
         ...
 
 
+class MusicSource(Protocol):
+    async def fetch(self, tone: str, output_path: Path) -> str:
+        """분위기에 맞는 배경음악을 output_path에 저장하고 출처 표기 문구를 돌려줍니다."""
+        ...
+
+
 @dataclass
 class Providers:
     planner: Planner
     tts: TTSEngine
     images: ImageGenerator
+    music: MusicSource | None = None  # 없으면 배경음악 없이 만듭니다
 
 
 class ShortsPipeline:
@@ -83,27 +90,37 @@ class ShortsPipeline:
         step = (ASSETS_END - ASSETS_START) / len(plan.scenes)
         images = _ImageFailures()
 
-        async def build(index: int, scene: ScenePlan) -> Path:
+        async def build(index: int, scene: ScenePlan) -> tuple[Path, float]:
             nonlocal done
             async with self._scene_slots:
-                path = await self._build_scene(job, job_dir, index, scene, images)
+                result = await self._build_scene(job, job_dir, index, scene, images)
             done += 1
             job.update(progress=ASSETS_START + int(step * done))
-            return path
+            return result
 
-        # TaskGroup: 하나라도 실패하면 나머지 씬 작업을 즉시 취소합니다.
-        async with asyncio.TaskGroup() as tg:
-            tasks = [tg.create_task(build(i, s)) for i, s in enumerate(plan.scenes)]
-        scene_paths = [t.result() for t in tasks]
-        job.warnings.extend(images.summary())
+        # 배경음악은 씬을 만드는 동안 함께 찾습니다.
+        music_task = asyncio.create_task(self._fetch_music(job, job_dir))
+        try:
+            # TaskGroup: 하나라도 실패하면 나머지 씬 작업을 즉시 취소합니다.
+            async with asyncio.TaskGroup() as tg:
+                tasks = [tg.create_task(build(i, s)) for i, s in enumerate(plan.scenes)]
+            scene_paths = [t.result()[0] for t in tasks]
+            scene_durations = [t.result()[1] for t in tasks]
+            job.warnings.extend(images.summary())
 
-        job.update(status=JobStatus.RENDERING_FINAL, progress=ASSETS_END)
-        final_name = f"final_{job.job_id}.mp4"
-        duration = await video.concat_scenes(
-            scene_paths, job_dir / final_name, timeout=self._settings.ffmpeg_timeout_sec
-        )
-        for path in scene_paths:  # 중간 산출물 정리 (이미지·음성·기획은 디버깅용으로 남김)
-            path.unlink(missing_ok=True)
+            job.update(status=JobStatus.RENDERING_FINAL, progress=ASSETS_END)
+            final_name = f"final_{job.job_id}.mp4"
+            narration_path = job_dir / f"narration_{job.job_id}.mp4"
+            duration = await video.concat_scenes(
+                scene_paths, narration_path, timeout=self._settings.ffmpeg_timeout_sec
+            )
+            for path in scene_paths:  # 중간 산출물 정리 (이미지·음성·기획은 디버깅용으로 남김)
+                path.unlink(missing_ok=True)
+            await self._add_soundtrack(
+                job, job_dir, narration_path, job_dir / final_name, scene_durations, duration, await music_task
+            )
+        finally:
+            music_task.cancel()  # 중간에 실패했을 때 음악 다운로드가 남지 않도록 (끝난 작업이면 아무 일 없음)
 
         job.update(
             status=JobStatus.COMPLETED,
@@ -113,9 +130,71 @@ class ShortsPipeline:
         )
         logger.info("작업 %s 완료: %d개 씬, %.1f초", job.job_id, len(plan.scenes), duration)
 
+    async def _fetch_music(self, job: Job, job_dir: Path) -> Path | None:
+        """배경음악을 받아 둡니다. 실패해도 작업은 계속하고 경고만 남깁니다."""
+        if not (self._settings.background_music and self._providers.music):
+            return None
+        path = job_dir / "music.mp3"
+        try:
+            credit = await self._providers.music.fetch(job.tone, path)
+        except Exception as exc:
+            reason = short_reason(exc)
+            logger.warning("작업 %s 배경음악 실패, 음악 없이 진행: %s", job.job_id, reason)
+            job.warnings.append(f"배경음악을 찾지 못해 음악 없이 만들었어요 ({reason})")
+            return None
+        job.audio_credits.append(credit)
+        return path
+
+    async def _add_soundtrack(
+        self,
+        job: Job,
+        job_dir: Path,
+        narration_path: Path,
+        final_path: Path,
+        scene_durations: list[float],
+        duration: float,
+        music_path: Path | None,
+    ) -> None:
+        """배경음악·전환 효과음을 섞어 최종 영상을 만듭니다. 섞지 못하면 나레이션만 있는 영상을 씁니다."""
+        sfx_path, sfx_times = None, []
+        if self._settings.transition_sfx and len(scene_durations) > 1:
+            sfx_path = job_dir / "whoosh.wav"
+            try:
+                await audio.make_whoosh(sfx_path, timeout=self._settings.ffmpeg_timeout_sec)
+                # 소리가 가장 큰 순간이 장면이 바뀌는 시점에 오도록 조금 앞당깁니다.
+                boundary = 0.0
+                for d in scene_durations[:-1]:
+                    boundary += d
+                    sfx_times.append(max(0.0, boundary - 0.15))
+            except Exception as exc:
+                logger.warning("작업 %s 전환 효과음 생성 실패: %s", job.job_id, exc)
+                sfx_path = None
+        if music_path is None and not sfx_times:
+            narration_path.replace(final_path)
+            return
+        try:
+            await video.mix_soundtrack(
+                narration_path,
+                final_path,
+                duration=duration,
+                music_path=music_path,
+                music_volume=self._settings.music_volume,
+                sfx_path=sfx_path,
+                sfx_times=sfx_times,
+                sfx_volume=self._settings.sfx_volume,
+                timeout=self._settings.ffmpeg_timeout_sec,
+            )
+            narration_path.unlink(missing_ok=True)
+        except Exception as exc:
+            logger.warning("작업 %s 배경음·효과음 합성 실패, 나레이션만 사용: %s", job.job_id, exc)
+            job.warnings.append("배경음악·효과음을 넣지 못해 나레이션만 있는 영상으로 만들었어요")
+            job.audio_credits.clear()
+            final_path.unlink(missing_ok=True)
+            narration_path.replace(final_path)
+
     async def _build_scene(
         self, job: Job, job_dir: Path, index: int, scene: ScenePlan, images: "_ImageFailures"
-    ) -> Path:
+    ) -> tuple[Path, float]:
         n = index + 1
         audio_path = job_dir / f"audio_{n:02d}.mp3"
         image_path = job_dir / f"image_{n:02d}.png"
@@ -148,7 +227,7 @@ class ShortsPipeline:
             image_with_fallback(),
             video.render_subtitle_png(scene.subtitle_text, self._spec, subtitle_path),
         )
-        await video.render_scene(
+        scene_duration = await video.render_scene(
             image_path=image_path,
             audio_path=audio_path,
             subtitle_png=subtitle_path,
@@ -156,7 +235,7 @@ class ShortsPipeline:
             spec=self._spec,
             zoom_in=index % 2 == 0,  # 씬마다 줌 인/아웃을 번갈아 단조로움을 줄임
         )
-        return scene_path
+        return scene_path, scene_duration
 
 
 class _ImageFailures:

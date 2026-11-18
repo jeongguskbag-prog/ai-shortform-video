@@ -9,7 +9,8 @@
 - `app/services/planner.py` — Gemini 씬 기획 (JSON 스키마 강제, `normalize_plan`으로 정리)
 - `app/services/tts.py` — 나레이션: Edge TTS → Gemini 음성 → gTTS (`TTSChain`)
 - `app/services/images.py` — 이미지: Gemini → Pexels → Pixabay → Openverse → 그라디언트 배경 (`ImageSourceChain`)
-- `app/services/video.py` — Pillow 자막 PNG, FFmpeg 렌더링·한글 폰트 탐색
+- `app/services/video.py` — Pillow 자막 PNG, FFmpeg 렌더링·한글 폰트 탐색, 배경음·효과음 합성(`mix_soundtrack`)
+- `app/services/audio.py` — 배경음악(Openverse 오디오 검색), 전환 효과음 합성
 - `app/fallback.py`, `app/retry.py` — 공용 예비 수단 체인과 재시도
 - `app/jobs.py` — 작업 상태를 프로세스 메모리에 저장 (워커 1개 전제)
 - `app/auth.py`, `app/signing.py` — API 키 인증, 영상 링크 HMAC 서명

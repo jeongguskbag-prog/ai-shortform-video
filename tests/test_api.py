@@ -106,3 +106,66 @@ async def test_stock_photo_credit_is_reported(settings):
         assert body["status"] == "COMPLETED", body["error"]
         assert body["image_credits"] == ["Kim / Pexels"]  # 씬 2개가 같은 촬영자면 한 번만
         assert body["warnings"] == []
+
+
+class FakeMusic:
+    def __init__(self, fail: bool = False) -> None:
+        self.fail = fail
+        self.tones = []
+
+    async def fetch(self, tone, output_path):
+        self.tones.append(tone)
+        if self.fail:
+            raise RuntimeError("openverse down")
+        from app.services import video
+
+        await video.run_command(
+            ["ffmpeg", "-y", "-loglevel", "error", "-f", "lavfi", "-i",
+             "sine=frequency=220:duration=1.5", str(output_path)],
+            timeout=30,
+        )
+        return "Sunny - Jane / Openverse (BY 3.0)"
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_background_music_is_mixed_and_credited(settings):
+    music = FakeMusic()
+    app = create_app(settings, Providers(FakePlanner(2), FakeTTS(), FakeImages(), music))
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        r = await client.post("/api/v1/shorts/generate", json={"script": "배경음악 테스트 대본", "tone": "calm"})
+        body = await _wait_done(client, r.json()["job_id"])
+        assert body["status"] == "COMPLETED", body["error"]
+        assert body["audio_credits"] == ["Sunny - Jane / Openverse (BY 3.0)"]
+        assert body["warnings"] == []
+        assert music.tones == ["calm"]
+        assert (await client.get(body["video_url"])).content[4:8] == b"ftyp"
+    job_dir = settings.output_dir / body["job_id"]
+    assert not list(job_dir.glob("narration_*.mp4"))  # 섞기 전 영상은 정리됨
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_missing_music_only_warns(settings):
+    app = create_app(settings, Providers(FakePlanner(2), FakeTTS(), FakeImages(), FakeMusic(fail=True)))
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        r = await client.post("/api/v1/shorts/generate", json={"script": "배경음악 실패 테스트 대본"})
+        body = await _wait_done(client, r.json()["job_id"])
+        assert body["status"] == "COMPLETED", body["error"]
+        assert body["audio_credits"] == []
+        assert len(body["warnings"]) == 1 and body["warnings"][0].startswith("배경음악을 찾지 못해")
+        assert body["duration_sec"] > 2
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_sound_can_be_turned_off(settings):
+    settings = settings.model_copy(update={"background_music": False, "transition_sfx": False})
+    music = FakeMusic()
+    app = create_app(settings, Providers(FakePlanner(2), FakeTTS(), FakeImages(), music))
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        r = await client.post("/api/v1/shorts/generate", json={"script": "소리 끄기 테스트 대본"})
+        body = await _wait_done(client, r.json()["job_id"])
+        assert body["status"] == "COMPLETED", body["error"]
+        assert music.tones == [] and body["audio_credits"] == []
+    assert not list((settings.output_dir / body["job_id"]).glob("whoosh.wav"))

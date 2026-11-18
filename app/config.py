@@ -44,6 +44,13 @@ class Settings(BaseSettings):
     tts_rate: str = "+15%"  # Edge 속도 (Google 번역 음성에도 같은 속도를 적용)
     gemini_tts_model: str = "gemini-3.8-flash-tts"
     gemini_tts_voice: str = "Kore"
+    # 배경음악: Openverse(키 불필요)에서 영상 분위기에 맞는 곡을 찾아 나레이션 아래에 작게 깝니다.
+    # 찾지 못하면 음악 없이 완성합니다.
+    background_music: bool = True
+    music_volume: float = Field(default=0.15, ge=0, le=1, description="배경음악 크기 (0~1)")
+    # 장면이 바뀔 때 '휙' 효과음. 외부 서비스 없이 FFmpeg로 만듭니다.
+    transition_sfx: bool = True
+    sfx_volume: float = Field(default=0.5, ge=0, le=1, description="전환 효과음 크기 (0~1)")
 
     # --- 출력 영상 ---
     output_dir: Path = Path("output")
