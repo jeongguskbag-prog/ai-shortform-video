@@ -55,3 +55,50 @@ def test_plan_schema_converts_to_gemini_schema():
     schema = _transformers.t_schema(Client(api_key="x")._api_client, ShortsPlan)
     scene_props = schema.properties["scenes"].items.properties
     assert scene_props["stock_exclude"].items.type == "STRING"
+
+
+class _HangingModels:
+    """정해진 모델은 응답 없이 멈추고, 나머지는 씬 하나짜리 기획을 돌려주는 가짜 Gemini."""
+
+    def __init__(self, hang: set[str]) -> None:
+        self.hang, self.calls = hang, []
+
+    async def generate_content(self, model, contents, config):
+        import asyncio
+        from types import SimpleNamespace
+
+        self.calls.append(model)
+        if model in self.hang:
+            await asyncio.sleep(3600)
+        plan = ShortsPlan(title="t", scenes=[scene(1, "물 한 잔")])
+        return SimpleNamespace(parsed=plan, text=plan.model_dump_json())
+
+
+def _planner(hang):
+    from types import SimpleNamespace
+
+    from app.config import Settings
+    from app.services.planner import GeminiPlanner
+
+    models = _HangingModels(hang)
+    settings = Settings(_env_file=None, llm_timeout_sec=0.2, max_retries=1, llm_model="main", llm_fallback_model="backup")
+    return GeminiPlanner(SimpleNamespace(aio=SimpleNamespace(models=models)), settings), models
+
+
+@pytest.mark.asyncio
+async def test_planner_switches_to_fallback_when_main_model_hangs():
+    planner, models = _planner(hang={"main"})
+    plan = await planner.plan("대본", "calm")
+    assert plan.scenes[0].narration == "물 한 잔"
+    assert models.calls == ["main", "backup"]
+
+
+@pytest.mark.asyncio
+async def test_planner_gives_up_with_clear_error_when_every_model_hangs():
+    import asyncio
+
+    planner, models = _planner(hang={"main", "backup"})
+    async with asyncio.timeout(5):  # 무한 대기하지 않음
+        with pytest.raises(PlanningError, match="0.2초 안에"):
+            await planner.plan("대본", "calm")
+    assert models.calls == ["main", "backup"]

@@ -30,10 +30,32 @@ async def _make_clip(path, seconds):
     )
 
 
-def test_music_query_follows_tone():
-    assert audio.music_query_for("energetic") == "upbeat"
-    assert audio.music_query_for(" Calm ") == "calm piano"
-    assert audio.music_query_for("따뜻하고 잔잔한") == audio.DEFAULT_MUSIC_QUERY  # 직접 입력한 분위기
+def test_music_queries_follow_tone_with_broad_fallback():
+    assert audio.music_queries_for("energetic")[0] == "upbeat"
+    assert audio.music_queries_for(" Calm ")[0] == "calm piano"
+    assert audio.music_queries_for("따뜻하고 잔잔한") == audio.DEFAULT_MUSIC_QUERIES  # 직접 입력한 분위기
+    # 결과가 0곡이던 검색어("corporate background")를 쓰지 않고, 모든 분위기에 넓은 예비 검색어가 있음
+    for queries in audio.TONE_MUSIC_QUERIES.values():
+        assert len(queries) >= 2 and "corporate background" not in queries
+
+
+@pytest.mark.asyncio
+async def test_openverse_music_falls_back_to_next_query(tmp_path):
+    seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.host == "api.openverse.org":
+            if request.url.params["q"] == "acoustic":
+                return httpx.Response(200, json={"results": []})  # 첫 검색어는 결과 없음
+            return httpx.Response(200, json={"results": [
+                {"id": "p", "url": "https://cdn.example/p.mp3", "duration": 90_000, "title": "Keys", "creator": "Ann",
+                 "license": "cc0"}]})
+        return httpx.Response(200, content=b"ID3 fake mp3")
+
+    source = audio.OpenverseMusicSource(SETTINGS, transport=httpx.MockTransport(handler))
+    assert await source.fetch("informative", tmp_path / "m.mp3") == "Keys - Ann / Openverse (CC0)"
+    assert [r.url.params["q"] for r in seen if r.url.host == "api.openverse.org"] == ["acoustic", "piano"]
 
 
 def _openverse(payload, seen, broken=(), statuses=None):
@@ -82,7 +104,7 @@ async def test_openverse_music_retries_server_errors_and_reports_no_results(tmp_
     assert (await source.fetch("calm", tmp_path / "m.mp3")).startswith("T - Unknown")  # 500 한 번 뒤 성공
 
     empty = audio.OpenverseMusicSource(SETTINGS, transport=_openverse({"results": []}, []))
-    with pytest.raises(audio.MusicNotFoundError, match="calm piano"):
+    with pytest.raises(audio.MusicNotFoundError, match="calm piano / piano"):
         await empty.fetch("calm", tmp_path / "m2.mp3")
 
 
