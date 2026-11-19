@@ -209,3 +209,13 @@ def test_mentions_any_matches_whole_words_only():
     assert mentions_any("9-ball rack", ["9 ball"])
     assert not mentions_any("whirlpool spa", ["pool"])
     assert not mentions_any("anything", [])
+
+
+def test_styled_prompt_defaults_to_previous_look():
+    from app.services.images import IMAGE_STYLES, styled_prompt
+    from app.schemas import ImageStyle
+    from typing import get_args
+
+    assert styled_prompt("a cat", "auto") == "a cat, cinematic lighting"  # 예전 기본값과 같음
+    assert styled_prompt("a cat", "nope") == "a cat, cinematic lighting"
+    assert set(IMAGE_STYLES) == set(get_args(ImageStyle))  # 요청 검증 목록과 프롬프트 목록이 어긋나지 않게

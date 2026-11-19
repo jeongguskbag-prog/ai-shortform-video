@@ -139,7 +139,7 @@ def create_app(settings: Settings | None = None, providers: Providers | None = N
     )
     async def create_shorts_job(req: ScriptRequest, request: Request) -> CreateJobResponse:
         state = request.app.state
-        job = state.jobs.create(req.script, req.tone)
+        job = state.jobs.create(req.script, req.tone, req.style)
         # BackgroundTasks 대신 직접 태스크를 관리해 종료 시 깔끔하게 취소합니다.
         task = asyncio.create_task(state.pipeline.run(job), name=f"shorts-{job.job_id}")
         state.tasks.add(task)

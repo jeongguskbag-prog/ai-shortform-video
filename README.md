@@ -128,7 +128,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"   # 키 생성
 curl -X POST localhost:8000/api/v1/shorts/generate \
   -H "X-API-Key: $API_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"script": "하루 10분 투자로 인생이 바뀌는 습관 3가지를 알려드릴게요...", "tone": "energetic"}'
+  -d '{"script": "하루 10분 투자로 인생이 바뀌는 습관 3가지를 알려드릴게요...", "tone": "energetic", "style": "auto"}'
 # → {"job_id": "3f9c...", "status": "QUEUED", "status_url": "/api/v1/shorts/status/3f9c...", ...}
 
 # 상태 조회
@@ -157,6 +157,9 @@ curl -H "X-API-Key: $API_KEY" localhost:8000/api/v1/shorts/status/3f9c...
 - 이미지는 `IMAGE_SOURCES`(기본 `gemini,pexels,pixabay,openverse`) 순서로 시도하고, 키가 없는 서비스는 건너뜁니다.
   한도 초과·키 오류가 난 소스는 1시간 동안 건너뛰어(`IMAGE_SOURCE_COOLDOWN_SEC`) 결제가 꺼진 Gemini에 씬마다 헛된 요청을
   보내지 않습니다. 모두 실패하면 그라디언트 배경을 씁니다.
+- **그림 스타일**: 요청의 `style`(웹 화면의 "그림 스타일")로 AI 이미지의 화풍을 고릅니다.
+  `auto`(기본, 시네마틱 조명) · `realistic`(실사 사진) · `cinematic` · `anime` · `watercolor`(수채화) · `3d`(3D 애니메이션) · `webtoon`.
+  무료 사진(Pexels·Pixabay·Openverse)은 실제 사진이라 스타일이 적용되지 않으며, 그런 씬이 있으면 경고로 알려 줍니다.
 - 기본 이미지 모델은 `gemini-3.1-flash-image`입니다. `imagen-`으로 시작하는 모델을 지정하면 Imagen API를 사용합니다.
 - 쓸 수 있는 모델 목록 확인:
   `python -c "from google import genai; [print(m.name) for m in genai.Client().models.list()]"`

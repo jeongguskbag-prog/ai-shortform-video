@@ -26,10 +26,23 @@ from ..retry import with_retry
 
 logger = logging.getLogger(__name__)
 
-STYLE_SUFFIX = (
-    "vertical 9:16 composition, cinematic lighting, highly detailed, sharp focus, "
-    "no text, no captions, no watermark"
-)
+STYLE_SUFFIX = "vertical 9:16 composition, highly detailed, sharp focus, no text, no captions, no watermark"
+
+# 그림 스타일별로 씬 묘사 뒤에 붙이는 문구. "auto"는 예전 기본값(시네마틱 조명)과 같습니다.
+IMAGE_STYLES = {
+    "auto": "cinematic lighting",
+    "realistic": "photorealistic photograph, natural light, realistic textures",
+    "cinematic": "cinematic film still, dramatic lighting, shallow depth of field, color graded",
+    "anime": "Japanese anime illustration, cel shading, clean line art, vibrant colors",
+    "watercolor": "soft watercolor painting, visible paper texture, gentle washes of color",
+    "3d": "3D animated film style render, soft global illumination, rounded stylized shapes",
+    "webtoon": "Korean webtoon illustration, clean digital line art, flat bright colors",
+}
+
+
+def styled_prompt(visual_prompt: str, style: str) -> str:
+    """씬 묘사 뒤에 스타일 문구를 붙입니다. 사진 검색어는 앞쪽 단어를 쓰므로 뒤에 붙여야 검색에 섞이지 않습니다."""
+    return f"{visual_prompt}, {IMAGE_STYLES.get(style, IMAGE_STYLES['auto'])}"
 
 
 class ImageGenerationError(UserFacingError):

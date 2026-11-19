@@ -180,6 +180,12 @@
           <input type="text" id="tone" maxlength="50" aria-label="분위기 직접 입력" placeholder="직접 입력 (예: 따뜻하고 잔잔한)">
         </div>
 
+        <div class="section">
+          <label class="field" id="style-label">그림 스타일</label>
+          <div class="chips" role="group" aria-labelledby="style-label" id="styles"></div>
+          <div class="hint"><span>AI 이미지에 적용돼요 · 무료 사진에는 적용되지 않아요</span></div>
+        </div>
+
         <button class="btn" type="submit" id="submit">영상 만들기</button>
         <div class="alert err" id="form-error" role="alert" hidden></div>
       </form>
@@ -231,6 +237,10 @@
     ["energetic", "활기찬"], ["calm", "차분한"], ["humorous", "유머러스"],
     ["emotional", "감성적인"], ["informative", "정보 전달"], ["mysterious", "미스터리"],
   ];
+  const STYLES = [
+    ["auto", "자동"], ["realistic", "실사 사진"], ["cinematic", "시네마틱"], ["anime", "애니메이션"],
+    ["watercolor", "수채화"], ["3d", "3D 애니메이션"], ["webtoon", "웹툰"],
+  ];
   const STEPS = [
     ["QUEUED", "대기열 등록"],
     ["PLANNING", "AI가 씬 기획"],
@@ -243,7 +253,7 @@
 
   const $ = (id) => document.getElementById(id);
   const els = {
-    form: $("form"), script: $("script"), count: $("count"), tones: $("tones"), tone: $("tone"),
+    form: $("form"), script: $("script"), count: $("count"), tones: $("tones"), tone: $("tone"), styles: $("styles"),
     submit: $("submit"), formError: $("form-error"), keySection: $("key-section"), apiKey: $("api-key"),
     progressCard: $("progress-card"), stageText: $("stage-text"), pct: $("pct"), bar: $("bar"),
     steps: $("steps"), jobError: $("job-error"), jobWarn: $("job-warn"),
@@ -309,6 +319,18 @@
   els.tone.addEventListener("input", renderTones);
   renderTones();
 
+  let selectedStyle = "auto";
+  for (const [value, label] of STYLES) {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "chip"; b.textContent = label; b.dataset.value = value;
+    b.addEventListener("click", () => { selectedStyle = value; renderStyles(); });
+    els.styles.append(b);
+  }
+  function renderStyles() {
+    for (const b of els.styles.children) b.setAttribute("aria-pressed", String(b.dataset.value === selectedStyle));
+  }
+  renderStyles();
+
   function updateCount() {
     const n = els.script.value.trim().length;
     els.count.textContent = `${n.toLocaleString()} / ${MAX_LEN.toLocaleString()}`;
@@ -345,7 +367,7 @@
     try {
       const res = await fetch(`${API}/generate`, {
         method: "POST", headers: { "Content-Type": "application/json", ...authHeaders() },
-        body: JSON.stringify({ script, tone }),
+        body: JSON.stringify({ script, tone, style: selectedStyle }),
       });
       if (res.status === 401) return askForKey("API 키가 올바르지 않아요. 다시 확인해 주세요.");
       const body = await res.json().catch(() => null);
