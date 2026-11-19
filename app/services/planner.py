@@ -1,5 +1,6 @@
 """대본 → 씬 기획 (Gemini)."""
 
+import asyncio
 import logging
 
 from google import genai
@@ -117,12 +118,21 @@ class GeminiPlanner:
         if self._settings.llm_fallback_model and self._settings.llm_fallback_model not in models:
             models.append(self._settings.llm_fallback_model)
 
+        timeout = self._settings.llm_timeout_sec
         for i, model in enumerate(models):
             try:
-                plan = await with_retry(
-                    lambda m=model: call(m), attempts=self._settings.max_retries, what=f"씬 기획({model})"
+                # 모델이 응답 없이 멈추는 경우가 있어(과부하 때 실제로 발생) 재시도를 포함한 모델별 대기 시간을 제한합니다.
+                plan = await asyncio.wait_for(
+                    with_retry(lambda m=model: call(m), attempts=self._settings.max_retries, what=f"씬 기획({model})"),
+                    timeout=timeout,
                 )
                 return normalize_plan(plan)
+            except TimeoutError as exc:
+                if i == len(models) - 1:
+                    raise PlanningError(
+                        f"씬 기획 응답이 {timeout:g}초 안에 오지 않았습니다 (Gemini 과부하). 잠시 후 다시 시도하세요."
+                    ) from exc
+                logger.warning("씬 기획 모델 %s가 %g초 안에 응답하지 않아 예비 모델 %s로 전환", model, timeout, models[i + 1])
             except Exception as exc:
                 # 과부하·일시 오류이거나 모델이 내려간 경우(404)에만 예비 모델로 넘어갑니다.
                 # 키 오류 같은 문제는 예비 모델로도 해결되지 않으므로 바로 알립니다.

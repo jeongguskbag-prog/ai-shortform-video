@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     llm_model: str = "gemini-flash-latest"
     # 기본 모델이 과부하(503) 등으로 계속 실패하면 이 모델로 한 번 더 시도합니다. 비우면 사용하지 않습니다.
     llm_fallback_model: str = "gemini-flash-lite-latest"
+    # 씬 기획 모델 하나에 기다리는 최대 시간(초, 재시도 포함). 넘기면 예비 모델로, 예비 모델도 넘기면 작업 실패로 알립니다.
+    llm_timeout_sec: float = Field(default=120.0, gt=0)
     # Gemini 이미지 모델(generate_content)과 Imagen 모델(imagen-*, generate_images)을 모두 지원합니다.
     image_model: str = "gemini-3.1-flash-image"
     # 무료 사진 API 키 (선택). 키가 없는 서비스는 건너뜁니다.
