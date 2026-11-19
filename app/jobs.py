@@ -31,6 +31,7 @@ class Job:
     error: str | None = None
     warnings: list[str] = field(default_factory=list)
     image_credits: list[str] = field(default_factory=list)
+    audio_credits: list[str] = field(default_factory=list)
     created_at: datetime = field(default_factory=_now)
     updated_at: datetime = field(default_factory=_now)
 
@@ -61,6 +62,7 @@ class Job:
             error=self.error,
             warnings=list(self.warnings),
             image_credits=list(self.image_credits),
+            audio_credits=list(self.audio_credits),
             created_at=self.created_at,
             updated_at=self.updated_at,
         )

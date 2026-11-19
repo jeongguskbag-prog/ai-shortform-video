@@ -71,5 +71,6 @@ class JobStatusResponse(BaseModel):
     error: str | None = None
     warnings: list[str] = Field(default_factory=list)
     image_credits: list[str] = Field(default_factory=list, description="사용한 사진의 출처 표기")
+    audio_credits: list[str] = Field(default_factory=list, description="사용한 배경음악의 출처 표기")
     created_at: datetime
     updated_at: datetime

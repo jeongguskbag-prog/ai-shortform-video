@@ -35,6 +35,7 @@ def build_default_providers(settings: Settings) -> Providers:
         PexelsImageSource,
         PixabayImageSource,
     )
+    from .services.audio import OpenverseMusicSource
     from .services.planner import GeminiPlanner
     from .services.tts import build_tts_chain
 
@@ -64,6 +65,7 @@ def build_default_providers(settings: Settings) -> Providers:
         planner=GeminiPlanner(client, settings),
         tts=build_tts_chain(settings, client),
         images=ImageSourceChain(sources, settings.image_source_cooldown_sec),
+        music=OpenverseMusicSource(settings) if settings.background_music else None,
     )
 
 

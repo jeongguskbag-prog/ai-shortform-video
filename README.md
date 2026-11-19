@@ -12,7 +12,8 @@
              ├ 이미지: Gemini AI → 무료 사진(Pexels·Pixabay·Openverse) → 그라디언트 배경 순서로 시도
              ├ Pillow 자막 PNG          (한글 폰트, 자동 줄바꿈, 외곽선, 반투명 박스)
              └ FFmpeg 씬 렌더링          (켄 번스 줌 인/아웃 교차, 음성 길이에 맞춤)
-        └▶ FFmpeg 무손실 이어 붙이기 (+faststart)
+        └▶ FFmpeg 무손실 이어 붙이기
+        └▶ 배경음악(Openverse, 씬 생성과 동시에 검색) + 전환 효과음 합성 (+faststart)
 ```
 
 ## 실행
@@ -159,6 +160,16 @@ curl -H "X-API-Key: $API_KEY" localhost:8000/api/v1/shorts/status/3f9c...
 - 기본 이미지 모델은 `gemini-3.1-flash-image`입니다. `imagen-`으로 시작하는 모델을 지정하면 Imagen API를 사용합니다.
 - 쓸 수 있는 모델 목록 확인:
   `python -c "from google import genai; [print(m.name) for m in genai.Client().models.list()]"`
+
+## 배경음악과 효과음
+
+- **배경음악**: 영상 분위기(활기찬·차분한 등)에 맞는 곡을 [Openverse](https://openverse.org/) 오디오 검색에서 찾아
+  나레이션 아래에 작게 깝니다. 키가 필요 없고, 출처 표기만으로 쓸 수 있는 라이선스(CC0, 퍼블릭 도메인, CC BY)만 씁니다.
+  나레이션이 나올 때는 음악이 자동으로 작아지고(덕킹), 끝에서 서서히 사라집니다.
+  곡을 찾지 못하면 음악 없이 완성하고 경고를 남깁니다.
+- **전환 효과음**: 장면이 바뀔 때 '휙' 소리를 넣습니다. 외부 서비스 없이 FFmpeg로 만들어서 항상 동작합니다.
+- 음악 출처는 상태 조회의 `audio_credits`와 웹 화면 영상 아래에 표시됩니다. 영상을 올릴 때 설명란에도 적어 주세요.
+- 끄기·크기 조절: `BACKGROUND_MUSIC=false`, `TRANSITION_SFX=false`, `MUSIC_VOLUME`(기본 0.15), `SFX_VOLUME`(기본 0.5).
 
 ## 설정
 

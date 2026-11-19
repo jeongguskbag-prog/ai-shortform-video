@@ -309,3 +309,72 @@ async def concat_scenes(scene_paths: list[Path], output_path: Path, *, timeout: 
     finally:
         list_file.unlink(missing_ok=True)
     return await probe_duration(output_path)
+
+
+async def mix_soundtrack(
+    video_path: Path,
+    output_path: Path,
+    *,
+    duration: float,
+    music_path: Path | None = None,
+    music_volume: float = 0.15,
+    sfx_path: Path | None = None,
+    sfx_times: list[float] = (),
+    sfx_volume: float = 0.5,
+    timeout: float,
+) -> None:
+    """나레이션이 든 영상에 배경음악과 효과음을 섞습니다. 영상 스트림은 재인코딩하지 않습니다.
+
+    배경음악은 영상 길이에 맞춰 반복·자르고, 나레이션이 나올 때 자동으로 작아집니다(덕킹).
+    효과음은 sfx_times(초)마다 한 번씩 재생합니다.
+    """
+    sfx_times = [t for t in sfx_times if 0 <= t < duration] if sfx_path else []
+    if not music_path and not sfx_times:
+        raise ValueError("섞을 소리가 없습니다.")
+
+    args = ["ffmpeg", "-y", "-hide_banner", "-loglevel", "error", "-i", str(video_path)]
+    filters = ["[0:a]aresample=44100,aformat=channel_layouts=stereo[narr]"]
+    mix_inputs = []
+    if music_path:
+        args += ["-stream_loop", "-1", "-i", str(music_path)]
+        fade_out = min(1.5, duration / 3)
+        filters += [
+            "[narr]asplit=2[voice][key]",
+            f"[1:a]aresample=44100,aformat=channel_layouts=stereo,atrim=0:{duration:.3f},"
+            f"volume={music_volume:.3f},afade=t=in:st=0:d=1,"
+            f"afade=t=out:st={max(0.0, duration - fade_out):.3f}:d={fade_out:.3f}[music]",
+            "[music][key]sidechaincompress=threshold=0.03:ratio=6:attack=20:release=400[ducked]",
+        ]
+        mix_inputs += ["[voice]", "[ducked]"]
+    else:
+        mix_inputs.append("[narr]")
+    if sfx_times:
+        sfx_index = 2 if music_path else 1
+        args += ["-i", str(sfx_path)]
+        labels = [f"[s{i}]" for i in range(len(sfx_times))]
+        filters.append(
+            f"[{sfx_index}:a]aresample=44100,aformat=channel_layouts=stereo,volume={sfx_volume:.3f},"
+            f"asplit={len(sfx_times)}{''.join(labels)}"
+            if len(sfx_times) > 1
+            else f"[{sfx_index}:a]aresample=44100,aformat=channel_layouts=stereo,volume={sfx_volume:.3f}[s0]"
+        )
+        for i, t in enumerate(sfx_times):
+            ms = int(t * 1000)
+            filters.append(f"[s{i}]adelay={ms}|{ms}[d{i}]")
+            mix_inputs.append(f"[d{i}]")
+    filters.append(
+        f"{''.join(mix_inputs)}amix=inputs={len(mix_inputs)}:duration=first:normalize=0,"
+        "alimiter=limit=0.95[a]"
+    )
+    await run_command(
+        args + [
+            "-filter_complex", ";".join(filters),
+            "-map", "0:v", "-map", "[a]",
+            "-t", f"{duration:.3f}",
+            "-c:v", "copy",
+            "-c:a", "aac", "-b:a", "192k", "-ac", "2", "-ar", "44100",
+            "-movflags", "+faststart",
+            str(output_path),
+        ],
+        timeout=timeout,
+    )
