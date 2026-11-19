@@ -12,7 +12,7 @@ from .errors import describe_error, is_retryable, short_reason
 from .jobs import Job
 from .schemas import JobStatus, ScenePlan, ShortsPlan
 from .services import audio, video
-from .services.images import make_placeholder
+from .services.images import make_placeholder, styled_prompt
 
 logger = logging.getLogger(__name__)
 
@@ -208,10 +208,15 @@ class ShortsPipeline:
             else:
                 try:
                     credit = await self._providers.images.generate(
-                        scene.visual_prompt, image_path, scene.stock_query, exclude=scene.stock_exclude
+                        styled_prompt(scene.visual_prompt, job.style),
+                        image_path,
+                        scene.stock_query,
+                        exclude=scene.stock_exclude,
                     )
                     if credit and credit not in job.image_credits:
                         job.image_credits.append(credit)
+                    if credit and job.style not in ("auto", "realistic"):
+                        images.stock_with_style = True
                     return
                 except Exception as exc:
                     reason = short_reason(exc)
@@ -246,13 +251,17 @@ class _ImageFailures:
 
     def __init__(self) -> None:
         self.blocked: str | None = None
+        self.stock_with_style = False  # 그림 스타일을 골랐는데 무료 실사 사진이 들어간 씬이 있음
         self._scenes_by_reason: dict[str, list[int]] = {}
 
     def add(self, scene_no: int, reason: str) -> None:
         self._scenes_by_reason.setdefault(reason, []).append(scene_no)
 
     def summary(self) -> list[str]:
-        return [
+        warnings = [
             f"씬 {', '.join(map(str, sorted(scenes)))}: 이미지를 만들지 못해 기본 배경을 사용했어요 ({reason})"
             for reason, scenes in self._scenes_by_reason.items()
         ]
+        if self.stock_with_style:
+            warnings.append("무료 사진이 들어간 씬에는 고른 그림 스타일이 적용되지 않아요 (AI 이미지에만 적용)")
+        return warnings

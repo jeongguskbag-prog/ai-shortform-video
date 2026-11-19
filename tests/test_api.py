@@ -169,3 +169,49 @@ async def test_sound_can_be_turned_off(settings):
         assert body["status"] == "COMPLETED", body["error"]
         assert music.tones == [] and body["audio_credits"] == []
     assert not list((settings.output_dir / body["job_id"]).glob("whoosh.wav"))
+
+
+class RecordingImages(FakeImages):
+    def __init__(self, credit=None) -> None:
+        super().__init__()
+        self.prompts, self.queries, self.credit = [], [], credit
+
+    async def generate(self, prompt, output_path, query="", exclude=()):
+        self.prompts.append(prompt)
+        self.queries.append(query)
+        await super().generate(prompt, output_path, query, exclude)
+        return self.credit
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_image_style_is_added_after_scene_prompt(settings):
+    images = RecordingImages()
+    app = create_app(settings, Providers(FakePlanner(2), FakeTTS(), images))
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        r = await client.post("/api/v1/shorts/generate", json={"script": "그림 스타일 테스트 대본", "style": "watercolor"})
+        body = await _wait_done(client, r.json()["job_id"])
+        assert body["status"] == "COMPLETED", body["error"]
+        assert body["warnings"] == []
+    # 씬 묘사는 앞에 그대로 두고 스타일 문구를 뒤에 붙임 (사진 검색어에 섞이지 않도록)
+    assert all(p.startswith("scene ") and p.endswith("visible paper texture, gentle washes of color") for p in images.prompts)
+
+
+@requires_ffmpeg
+@pytest.mark.asyncio
+async def test_style_with_stock_photos_warns_once(settings):
+    images = RecordingImages(credit="Kim / Pexels")
+    app = create_app(settings, Providers(FakePlanner(2), FakeTTS(), images))
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        r = await client.post("/api/v1/shorts/generate", json={"script": "그림 스타일 사진 테스트", "style": "anime"})
+        body = await _wait_done(client, r.json()["job_id"])
+        assert body["status"] == "COMPLETED", body["error"]
+        assert len(body["warnings"]) == 1 and "그림 스타일이 적용되지 않아요" in body["warnings"][0]
+
+
+@pytest.mark.asyncio
+async def test_unknown_style_is_rejected(settings, providers):
+    app = create_app(settings, providers)
+    async with app.router.lifespan_context(app), await _client(app) as client:
+        r = await client.post("/api/v1/shorts/generate", json={"script": "잘못된 스타일 테스트", "style": "oil"})
+        assert r.status_code == 422

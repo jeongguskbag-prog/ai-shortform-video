@@ -1,14 +1,22 @@
 from datetime import datetime
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 MAX_SCENES = 20
 
+# 그림 스타일. 실제 프롬프트 문구는 app/services/images.py의 IMAGE_STYLES에 있습니다.
+ImageStyle = Literal["auto", "realistic", "cinematic", "anime", "watercolor", "3d", "webtoon"]
+
 
 class ScriptRequest(BaseModel):
     script: str = Field(min_length=10, max_length=5000, description="쇼츠로 만들 대본")
     tone: str = Field(default="energetic", min_length=1, max_length=50, description="영상 분위기")
+    style: ImageStyle = Field(
+        default="auto",
+        description="AI 이미지 그림 스타일. 무료 사진(Pexels·Pixabay·Openverse)에는 적용되지 않습니다.",
+    )
 
     @field_validator("script", "tone")
     @classmethod

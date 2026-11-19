@@ -21,6 +21,7 @@ class Job:
     job_id: str
     script: str
     tone: str
+    style: str = "auto"
     status: JobStatus = JobStatus.QUEUED
     failed_stage: JobStatus | None = None  # 실패했을 때 진행 중이던 단계
     progress: int = 0
@@ -72,8 +73,8 @@ class JobStore:
     def __init__(self) -> None:
         self._jobs: dict[str, Job] = {}
 
-    def create(self, script: str, tone: str) -> Job:
-        job = Job(job_id=uuid.uuid4().hex, script=script, tone=tone)
+    def create(self, script: str, tone: str, style: str = "auto") -> Job:
+        job = Job(job_id=uuid.uuid4().hex, script=script, tone=tone, style=style)
         self._jobs[job.job_id] = job
         return job
 
